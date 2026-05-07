@@ -1158,9 +1158,9 @@ mod tests {
     use super::*;
     #[cfg(unix)]
     use cadis_models::{ModelInvocation, ModelProvider, ModelResponse};
-    use cadis_protocol::{
-        CadisEvent, EmptyPayload, EventId, SessionEventPayload, SessionId, Timestamp,
-    };
+    use cadis_test_utils::{event, session_event};
+    #[cfg(unix)]
+    use cadis_test_utils::test_workspace;
     #[cfg(unix)]
     use cadis_protocol::{
         ClientId, ContentKind, DaemonResponse, MessageSendRequest, RequestEnvelope, RequestId,
@@ -1829,43 +1829,7 @@ mod tests {
         ));
     }
 
-    #[cfg(unix)]
-    fn test_workspace(name: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "{name}-{}-{}",
-            process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be after unix epoch")
-                .as_nanos()
-        ));
-        fs::create_dir_all(&path).expect("test workspace should be created");
-        path
-    }
 
-    fn session_event(event_id: &str, session_id: &str) -> EventEnvelope {
-        let session_id = SessionId::from(session_id);
-        EventEnvelope::new(
-            EventId::from(event_id),
-            Timestamp::new_utc("2026-04-26T00:00:00Z").expect("timestamp should parse"),
-            "cadisd",
-            Some(session_id.clone()),
-            CadisEvent::SessionStarted(SessionEventPayload {
-                session_id,
-                title: None,
-            }),
-        )
-    }
-
-    fn event(event_id: &str) -> EventEnvelope {
-        EventEnvelope::new(
-            EventId::from(event_id),
-            Timestamp::new_utc("2026-04-26T00:00:00Z").expect("timestamp should parse"),
-            "cadisd",
-            None,
-            CadisEvent::DaemonStarted(EmptyPayload::default()),
-        )
-    }
 
     #[test]
     fn bounded_replay_returns_empty_for_zero_limit() {
