@@ -295,18 +295,16 @@ impl ResponseEnvelope {
 }
 
 /// Newline-delimited JSON frame sent by `cadisd`.
-#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(tag = "frame", content = "payload", rename_all = "snake_case")]
 pub enum ServerFrame {
     /// Immediate response to a request.
     Response(ResponseEnvelope),
     /// Runtime event emitted by the daemon.
-    Event(EventEnvelope),
+    Event(Box<EventEnvelope>),
 }
 
 /// Immediate response returned for request handling failures or acknowledgements.
-#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(tag = "type", content = "payload")]
 pub enum DaemonResponse {
@@ -315,13 +313,13 @@ pub enum DaemonResponse {
     RequestAccepted(RequestAcceptedPayload),
     /// Current daemon status.
     #[serde(rename = "daemon.status.response")]
-    DaemonStatus(DaemonStatusPayload),
+    DaemonStatus(Box<DaemonStatusPayload>),
     /// Request was rejected before execution.
     #[serde(rename = "request.rejected")]
     RequestRejected(ErrorPayload),
     /// Worker artifact file content.
     #[serde(rename = "worker.artifact.read.response")]
-    WorkerArtifactRead(WorkerArtifactReadResponse),
+    WorkerArtifactRead(Box<WorkerArtifactReadResponse>),
 }
 
 /// Acknowledgement payload for accepted requests.
@@ -2605,7 +2603,7 @@ mod tests {
     fn server_response_frame_matches_transport_shape() {
         let frame = ServerFrame::Response(ResponseEnvelope::new(
             RequestId::from("req_1"),
-            DaemonResponse::DaemonStatus(DaemonStatusPayload {
+            DaemonResponse::DaemonStatus(Box::new(DaemonStatusPayload {
                 status: "ok".to_owned(),
                 version: "0.1.0".to_owned(),
                 protocol_version: ProtocolVersion::current(),
@@ -2615,7 +2613,7 @@ mod tests {
                 model_provider: "echo".to_owned(),
                 uptime_seconds: 3,
                 voice: VoiceStatusPayload::default(),
-            }),
+            })),
         ));
 
         let value = serde_json::to_value(&frame).expect("frame should serialize");

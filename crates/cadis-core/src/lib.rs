@@ -777,7 +777,7 @@ impl Runtime {
         RequestOutcome {
             response: ResponseEnvelope::new(
                 request_id,
-                DaemonResponse::DaemonStatus(DaemonStatusPayload {
+                DaemonResponse::DaemonStatus(Box::new(DaemonStatusPayload {
                     status: "ok".to_owned(),
                     version: env!("CARGO_PKG_VERSION").to_owned(),
                     protocol_version: ProtocolVersion::current(),
@@ -791,7 +791,7 @@ impl Runtime {
                     model_provider: self.options.model_provider.clone(),
                     uptime_seconds: self.started_at.elapsed().as_secs(),
                     voice: self.voice_status(),
-                }),
+                })),
             ),
             events: Vec::new(),
         }
@@ -12783,7 +12783,7 @@ mod tests {
         ));
 
         let response_frame = ServerFrame::Response(outcome.response);
-        let event_frame = ServerFrame::Event(outcome.events[0].clone());
+        let event_frame = ServerFrame::Event(Box::new(outcome.events[0].clone()));
 
         serde_json::to_string(&response_frame).expect("response frame should serialize");
         serde_json::to_string(&event_frame).expect("event frame should serialize");
