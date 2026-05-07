@@ -34,6 +34,8 @@ cadis-store = { path = "crates/cadis-store" }
 cadis-output-filter = { path = "crates/cadis-output-filter" }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 eframe = "0.29"
+env_logger = "0.11"
+log = "0.4"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }

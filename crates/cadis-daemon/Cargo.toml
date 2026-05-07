@@ -16,6 +16,8 @@ cadis-core.workspace = true
 cadis-models.workspace = true
 cadis-protocol.workspace = true
 cadis-store.workspace = true
+env_logger.workspace = true
+log.workspace = true
 serde_json.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "signal"] }
 

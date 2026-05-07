@@ -1,3 +1,4 @@
+use log::{error, info, warn};
 use std::collections::VecDeque;
 use std::env;
 use std::error::Error;
@@ -39,12 +40,14 @@ use cadis_store::{
 const EVENT_REPLAY_LIMIT: usize = 256;
 
 fn main() {
+    env_logger::init();
+
     // Handle --stdio outside the tokio runtime so that blocking model providers
     // (e.g. reqwest::blocking inside AutoProvider/OllamaProvider) can create and
     // drop their own internal tokio runtimes without panicking.
     if let Some(result) = try_run_stdio() {
         if let Err(error) = result {
-            eprintln!("cadisd: {error}");
+            error!("cadisd: {error}");
             process::exit(1);
         }
         return;
@@ -55,7 +58,7 @@ fn main() {
         .build()
         .expect("tokio runtime should build");
     if let Err(error) = rt.block_on(run()) {
-        eprintln!("cadisd: {error}");
+        error!("cadisd: {error}");
         process::exit(1);
     }
 }
@@ -203,7 +206,7 @@ async fn run_tcp(
     tcp_auth_token: Option<String>,
 ) -> Result<(), Box<dyn Error>> {
     let listener = TokioTcpListener::bind(addr).await?;
-    eprintln!("cadisd listening on tcp://{addr}");
+    info!("cadisd listening on tcp://{addr}");
 
     let shutdown = Arc::new(AtomicBool::new(false));
     let tcp_auth_token = tcp_auth_token.map(Arc::new);
@@ -226,19 +229,19 @@ async fn run_tcp(
                             let mut reader = tokio::io::BufReader::new(reader);
                             if let Some(ref expected) = tcp_auth_token {
                                 if let Err(error) = verify_tcp_auth(&mut reader, expected).await {
-                                    eprintln!("cadisd auth rejected: {error}");
+                                    warn!("cadisd auth rejected: {error}");
                                     return;
                                 }
                             }
                             if let Err(error) = serve_connection(
                                 reader, writer, runtime, event_log, event_bus, shutdown,
                             ).await {
-                                eprintln!("cadisd client error: {error}");
+                                error!("cadisd client error: {error}");
                             }
                         });
                     }
                     Err(error) => {
-                        eprintln!("cadisd accept error: {error}");
+                        error!("cadisd accept error: {error}");
                         break;
                     }
                 }
@@ -246,7 +249,7 @@ async fn run_tcp(
         }
     }
 
-    eprintln!("cadisd shutting down");
+    info!("cadisd shutting down");
     Ok(())
 }
 
@@ -273,7 +276,7 @@ async fn run_socket(
 ) -> Result<(), Box<dyn Error>> {
     prepare_socket_path(&socket_path)?;
     let listener = TokioUnixListener::bind(&socket_path)?;
-    eprintln!("cadisd listening on {}", socket_path.display());
+    info!("cadisd listening on {}", socket_path.display());
 
     let shutdown = Arc::new(AtomicBool::new(false));
 
@@ -295,12 +298,12 @@ async fn run_socket(
                             if let Err(error) = serve_connection(
                                 reader, writer, runtime, event_log, event_bus, shutdown,
                             ).await {
-                                eprintln!("cadisd client error: {error}");
+                                error!("cadisd client error: {error}");
                             }
                         });
                     }
                     Err(error) => {
-                        eprintln!("cadisd accept error: {error}");
+                        error!("cadisd accept error: {error}");
                         break;
                     }
                 }
@@ -308,7 +311,7 @@ async fn run_socket(
         }
     }
 
-    eprintln!("cadisd shutting down");
+    info!("cadisd shutting down");
     let _ = fs::remove_file(&socket_path);
     Ok(())
 }
@@ -1004,7 +1007,7 @@ fn emit_event<W: Write>(
 
 fn publish_event(event_log: &EventLog, event_bus: &EventBus, event: &EventEnvelope) {
     if let Err(error) = event_log.append_event(event) {
-        eprintln!("cadisd log error: {error}");
+        error!("cadisd log error: {error}");
     }
     event_bus.publish(event.clone());
 }
@@ -1082,7 +1085,7 @@ impl EventBus {
 
     fn publish(&self, event: EventEnvelope) {
         let Ok(mut inner) = self.inner.lock() else {
-            eprintln!("cadisd event bus error: event bus mutex was poisoned");
+            error!("cadisd event bus error: event bus mutex was poisoned");
             return;
         };
 
@@ -1105,7 +1108,7 @@ impl EventBus {
     ) -> (Vec<EventEnvelope>, mpsc::Receiver<EventEnvelope>) {
         let (sender, receiver) = mpsc::channel();
         let Ok(mut inner) = self.inner.lock() else {
-            eprintln!("cadisd event bus error: event bus mutex was poisoned");
+            error!("cadisd event bus error: event bus mutex was poisoned");
             return (Vec::new(), receiver);
         };
 

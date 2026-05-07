@@ -1,5 +1,6 @@
 //! Telegram bot adapter for C.A.D.I.S.
 
+use log::{error, warn};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -244,7 +245,7 @@ impl TelegramAdapter {
             let updates = match self.get_updates(offset).await {
                 Ok(u) => u,
                 Err(e) => {
-                    eprintln!("cadis-telegram poll error: {e}");
+                    error!("cadis-telegram poll error: {e}");
                     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                     continue;
                 }
@@ -262,7 +263,7 @@ impl TelegramAdapter {
                     continue;
                 };
                 if !self.is_authorized(chat_id) {
-                    eprintln!(
+                    warn!(
                         "cadis-telegram: rejected update from unauthorized chat_id={chat_id}"
                     );
                     continue;
@@ -283,7 +284,7 @@ impl TelegramAdapter {
             let updates = match self.get_updates(offset).await {
                 Ok(u) => u,
                 Err(e) => {
-                    eprintln!("cadis-telegram poll error: {e}");
+                    error!("cadis-telegram poll error: {e}");
                     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                     continue;
                 }
@@ -301,7 +302,7 @@ impl TelegramAdapter {
                     continue;
                 };
                 if !self.is_authorized(chat_id) {
-                    eprintln!(
+                    warn!(
                         "cadis-telegram: rejected update from unauthorized chat_id={chat_id}"
                     );
                     continue;
@@ -326,7 +327,7 @@ impl TelegramAdapter {
                     Err(e) => format!("⚠️ daemon error: {e}"),
                 };
                 if let Err(e) = self.send_message(chat_id, &reply).await {
-                    eprintln!("cadis-telegram send error: {e}");
+                    error!("cadis-telegram send error: {e}");
                 }
             }
         }
