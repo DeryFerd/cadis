@@ -811,8 +811,12 @@ async fn emit_event_async<W: tokio::io::AsyncWrite + Unpin>(
     event_bus: &EventBus,
     event: EventEnvelope,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    publish_event(event_log, event_bus, &event);
-    write_frame_async(writer, &ServerFrame::Event(event)).await
+    if let Err(error) = event_log.append_event(&event) {
+        eprintln!("cadisd log error: {error}");
+    }
+    let frame = ServerFrame::Event(event.clone());
+    event_bus.publish(event);
+    write_frame_async(writer, &frame).await
 }
 
 async fn write_frame_async<W: tokio::io::AsyncWrite + Unpin>(
@@ -998,15 +1002,12 @@ fn emit_event<W: Write>(
     event_bus: &EventBus,
     event: EventEnvelope,
 ) -> Result<(), Box<dyn Error>> {
-    publish_event(event_log, event_bus, &event);
-    write_frame(writer, &ServerFrame::Event(event))
-}
-
-fn publish_event(event_log: &EventLog, event_bus: &EventBus, event: &EventEnvelope) {
-    if let Err(error) = event_log.append_event(event) {
+    if let Err(error) = event_log.append_event(&event) {
         eprintln!("cadisd log error: {error}");
     }
-    event_bus.publish(event.clone());
+    let frame = ServerFrame::Event(event.clone());
+    event_bus.publish(event);
+    write_frame(writer, &frame)
 }
 
 #[derive(Clone)]
@@ -1086,17 +1087,23 @@ impl EventBus {
             return;
         };
 
-        if self.max_replay > 0 {
-            while inner.replay.len() >= self.max_replay {
-                inner.replay.pop_front();
-            }
-            inner.replay.push_back(event.clone());
-        }
-
+        // Notify subscribers.  Clone the event only for subscribers that
+        // accept it; the `retain` call simultaneously removes disconnected
+        // senders.
         inner.subscribers.retain(|subscriber| {
             !subscriber.subscription.matches(&event)
                 || subscriber.sender.send(event.clone()).is_ok()
         });
+
+        // Push into the replay buffer *after* subscribers have been served so
+        // that we can reuse the owned value and save one clone when there are
+        // no (or only one) matching subscribers.
+        if self.max_replay > 0 {
+            while inner.replay.len() >= self.max_replay {
+                inner.replay.pop_front();
+            }
+            inner.replay.push_back(event);
+        }
     }
 
     fn subscribe(
