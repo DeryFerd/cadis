@@ -218,6 +218,10 @@ pub struct CadisConfig {
     pub profile: ProfileConfig,
     /// Policy engine settings.
     pub policy: cadis_policy::PolicyConfig,
+    /// Optional shared-secret token for TCP connection authentication.
+    /// When set, TCP clients must send `{"auth_token":"<token>"}` as the first line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tcp_auth_token: Option<String>,
 }
 
 impl Default for CadisConfig {
@@ -235,6 +239,7 @@ impl Default for CadisConfig {
             orchestrator: OrchestratorConfig::default(),
             profile: ProfileConfig::default(),
             policy: cadis_policy::PolicyConfig::default(),
+            tcp_auth_token: None,
         }
     }
 }
@@ -1907,6 +1912,12 @@ pub fn load_config() -> Result<CadisConfig, StoreError> {
         }
     }
 
+    if let Ok(token) = env::var("CADIS_TCP_AUTH_TOKEN") {
+        if !token.trim().is_empty() {
+            config.tcp_auth_token = Some(token);
+        }
+    }
+
     ensure_layout(&config)?;
     Ok(config)
 }
@@ -1949,8 +1960,7 @@ pub fn default_cadis_home() -> PathBuf {
         .map(PathBuf::from)
         .map(|path| expand_home(&path))
         .unwrap_or_else(|| {
-            env::var_os("HOME")
-                .map(PathBuf::from)
+            home_dir()
                 .unwrap_or_else(|| PathBuf::from("."))
                 .join(".cadis")
         })
@@ -2598,8 +2608,14 @@ fn set_private_file_permissions(_path: &Path) -> Result<(), StoreError> {
 }
 
 fn sync_parent_dir(path: &Path) -> Result<(), StoreError> {
-    let dir = File::open(path)?;
-    dir.sync_all()?;
+    // File::open on a directory is not supported on Windows (returns "Access is denied").
+    #[cfg(unix)]
+    {
+        let dir = File::open(path)?;
+        dir.sync_all()?;
+    }
+    #[cfg(not(unix))]
+    let _ = path;
     Ok(())
 }
 

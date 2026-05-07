@@ -1,0 +1,17 @@
+# CADIS configuration example
+# Copy to ~/.cadis/config.toml and customize
+
+[model]
+provider = "auto"          # auto, ollama, openai, codex-cli, echo
+ollama_model = "llama3.2"  # Model name for Ollama
+ollama_endpoint = "http://127.0.0.1:11434"
+openai_model = "gpt-4o"    # Model name for OpenAI
+
+[voice]
+enabled = true
+provider = "edge-tts"
+voice_id = "en-US-AriaNeural"
+stt_language = "auto"
+
+[profile]
+default_profile = "default"

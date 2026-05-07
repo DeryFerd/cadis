@@ -194,6 +194,28 @@ cadis voice doctor
 cadis --json voice doctor
 ```
 
+### profile — stable
+
+Manage daemon configuration profiles.
+
+```bash
+cadis profile list
+cadis profile create <NAME>
+cadis profile export <NAME>
+cadis profile import <NAME> <FILE>
+cadis profile remove <NAME>
+```
+
+**Subcommands:**
+
+| Subcommand | Description |
+|---|---|
+| `list` | List available profiles (marks the active profile) |
+| `create <NAME>` | Create a new profile |
+| `export <NAME>` | Export a profile to stdout |
+| `import <NAME> <FILE>` | Import a profile from a file |
+| `remove <NAME>` | Remove a profile |
+
 ---
 
 ## Experimental commands

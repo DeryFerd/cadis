@@ -39,6 +39,17 @@ use cadis_store::{
 const EVENT_REPLAY_LIMIT: usize = 256;
 
 fn main() {
+    // Handle --stdio outside the tokio runtime so that blocking model providers
+    // (e.g. reqwest::blocking inside AutoProvider/OllamaProvider) can create and
+    // drop their own internal tokio runtimes without panicking.
+    if let Some(result) = try_run_stdio() {
+        if let Err(error) = result {
+            eprintln!("cadisd: {error}");
+            process::exit(1);
+        }
+        return;
+    }
+
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -47,6 +58,51 @@ fn main() {
         eprintln!("cadisd: {error}");
         process::exit(1);
     }
+}
+
+/// Attempt to handle `--stdio` mode synchronously, outside any async runtime.
+/// Returns `Some(result)` if `--stdio` was requested, `None` otherwise.
+fn try_run_stdio() -> Option<Result<(), Box<dyn Error>>> {
+    let args = match Args::parse(env::args().skip(1)) {
+        Ok(args) => args,
+        Err(e) => return Some(Err(e)),
+    };
+    if !args.stdio {
+        return None;
+    }
+
+    if args.version {
+        println!("cadisd {}", env!("CARGO_PKG_VERSION"));
+        return Some(Ok(()));
+    }
+
+    let mut config = match load_config() {
+        Ok(c) => c,
+        Err(e) => return Some(Err(Box::new(e) as Box<dyn Error>)),
+    };
+    apply_args_to_config(&args, &mut config);
+    if let Err(e) = ensure_layout(&config) {
+        return Some(Err(Box::new(e) as Box<dyn Error>));
+    }
+
+    let runtime = build_runtime(
+        &config,
+        args.socket_path.or_else(|| config.effective_socket_path()),
+    );
+    let event_log = EventLog::new(&config);
+    let event_bus = EventBus::new(EVENT_REPLAY_LIMIT);
+
+    let stdin = io::stdin();
+    let stdout = io::stdout();
+    let shutdown = AtomicBool::new(false);
+    Some(serve_lines_sync(
+        stdin.lock(),
+        stdout.lock(),
+        runtime,
+        event_log,
+        event_bus,
+        &shutdown,
+    ))
 }
 
 async fn run() -> Result<(), Box<dyn Error>> {
@@ -77,25 +133,17 @@ async fn run() -> Result<(), Box<dyn Error>> {
     let event_log = EventLog::new(&config);
     let event_bus = EventBus::new(EVENT_REPLAY_LIMIT);
 
-    if args.stdio {
-        let stdin = io::stdin();
-        let stdout = io::stdout();
-        let shutdown = AtomicBool::new(false);
-        serve_lines_sync(
-            stdin.lock(),
-            stdout.lock(),
-            runtime,
-            event_log,
-            event_bus,
-            &shutdown,
-        )?;
-        return Ok(());
-    }
-
     if use_tcp {
         let addr = config.effective_tcp_address();
         let addr = tcp_port.map(|p| format!("127.0.0.1:{p}")).unwrap_or(addr);
-        return run_tcp(&addr, runtime, event_log, event_bus).await;
+        return run_tcp(
+            &addr,
+            runtime,
+            event_log,
+            event_bus,
+            config.tcp_auth_token.clone(),
+        )
+        .await;
     }
 
     #[cfg(unix)]
@@ -110,7 +158,14 @@ async fn run() -> Result<(), Box<dyn Error>> {
         let addr = tcp_port
             .map(|p| format!("127.0.0.1:{p}"))
             .unwrap_or_else(|| config.effective_tcp_address());
-        run_tcp(&addr, runtime, event_log, event_bus).await
+        run_tcp(
+            &addr,
+            runtime,
+            event_log,
+            event_bus,
+            config.tcp_auth_token.clone(),
+        )
+        .await
     }
 }
 
@@ -145,11 +200,13 @@ async fn run_tcp(
     runtime: Arc<Mutex<Runtime>>,
     event_log: EventLog,
     event_bus: EventBus,
+    tcp_auth_token: Option<String>,
 ) -> Result<(), Box<dyn Error>> {
     let listener = TokioTcpListener::bind(addr).await?;
     eprintln!("cadisd listening on tcp://{addr}");
 
     let shutdown = Arc::new(AtomicBool::new(false));
+    let tcp_auth_token = tcp_auth_token.map(Arc::new);
 
     loop {
         if shutdown.load(Ordering::SeqCst) {
@@ -163,9 +220,16 @@ async fn run_tcp(
                         let event_log = event_log.clone();
                         let event_bus = event_bus.clone();
                         let shutdown = Arc::clone(&shutdown);
+                        let tcp_auth_token = tcp_auth_token.clone();
                         tokio::spawn(async move {
                             let (reader, writer) = stream.into_split();
-                            let reader = tokio::io::BufReader::new(reader);
+                            let mut reader = tokio::io::BufReader::new(reader);
+                            if let Some(ref expected) = tcp_auth_token {
+                                if let Err(error) = verify_tcp_auth(&mut reader, expected).await {
+                                    eprintln!("cadisd auth rejected: {error}");
+                                    return;
+                                }
+                            }
                             if let Err(error) = serve_connection(
                                 reader, writer, runtime, event_log, event_bus, shutdown,
                             ).await {
@@ -184,6 +248,20 @@ async fn run_tcp(
 
     eprintln!("cadisd shutting down");
     Ok(())
+}
+
+async fn verify_tcp_auth<R: tokio::io::AsyncBufRead + Unpin>(
+    reader: &mut R,
+    expected: &str,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let mut line = String::new();
+    reader.read_line(&mut line).await?;
+    let value: serde_json::Value = serde_json::from_str(line.trim())
+        .map_err(|_| io::Error::new(io::ErrorKind::PermissionDenied, "tcp auth failed"))?;
+    match value.get("auth_token").and_then(|v| v.as_str()) {
+        Some(token) if token == expected => Ok(()),
+        _ => Err(io::Error::new(io::ErrorKind::PermissionDenied, "tcp auth failed").into()),
+    }
 }
 
 #[cfg(unix)]
@@ -235,6 +313,123 @@ async fn run_socket(
     Ok(())
 }
 
+/// Transport-agnostic result of dispatching a single request line.
+enum DispatchAction {
+    /// Line was empty or whitespace — skip.
+    Skip,
+    /// JSON parse failed — send this rejection response.
+    ParseError(ServerFrame),
+    /// Protocol version unsupported — send this rejection response.
+    UnsupportedVersion(ServerFrame),
+    /// Daemon shutdown accepted — send response, then stop.
+    Shutdown(ServerFrame),
+    /// MessageSend succeeded — stream the pending generation.
+    MessageGeneration(Box<PendingMessageGeneration>),
+    /// MessageSend failed early — send response + emit events.
+    MessageRejected {
+        response: ServerFrame,
+        events: Vec<EventEnvelope>,
+    },
+    /// Normal request handled — send response, then handle subscription/snapshot/events.
+    Handled {
+        response: ServerFrame,
+        events: Vec<EventEnvelope>,
+        subscription: Option<EventBusSubscription>,
+        snapshot_only: bool,
+    },
+}
+
+fn dispatch_request(
+    line: &str,
+    runtime: &Arc<Mutex<Runtime>>,
+) -> Result<DispatchAction, io::Error> {
+    if line.trim().is_empty() {
+        return Ok(DispatchAction::Skip);
+    }
+
+    let envelope = match serde_json::from_str::<RequestEnvelope>(line) {
+        Ok(envelope) => envelope,
+        Err(error) => {
+            let response = ResponseEnvelope::new(
+                RequestId::from("req_invalid"),
+                DaemonResponse::RequestRejected(ErrorPayload {
+                    code: "invalid_request".to_owned(),
+                    message: format!("request JSON was invalid: {error}"),
+                    retryable: false,
+                }),
+            );
+            return Ok(DispatchAction::ParseError(ServerFrame::Response(response)));
+        }
+    };
+
+    if let Err(error) = envelope.protocol_version.ensure_supported() {
+        let response = ResponseEnvelope::new(
+            envelope.request_id,
+            DaemonResponse::RequestRejected(ErrorPayload {
+                code: "unsupported_protocol_version".to_owned(),
+                message: error.to_string(),
+                retryable: false,
+            }),
+        );
+        return Ok(DispatchAction::UnsupportedVersion(ServerFrame::Response(
+            response,
+        )));
+    }
+
+    if matches!(envelope.request, ClientRequest::DaemonShutdown(_)) {
+        let response = ResponseEnvelope::new(
+            envelope.request_id,
+            DaemonResponse::RequestAccepted(cadis_protocol::RequestAcceptedPayload {
+                request_id: RequestId::from("daemon.shutdown"),
+            }),
+        );
+        return Ok(DispatchAction::Shutdown(ServerFrame::Response(response)));
+    }
+
+    if matches!(envelope.request, ClientRequest::MessageSend(_)) {
+        let pending = runtime
+            .lock()
+            .map_err(|_| io::Error::other("runtime mutex was poisoned"))?
+            .begin_message_request(envelope);
+        return Ok(match pending {
+            Ok(pending) => DispatchAction::MessageGeneration(Box::new(pending)),
+            Err(outcome) => {
+                let outcome = *outcome;
+                DispatchAction::MessageRejected {
+                    response: ServerFrame::Response(outcome.response),
+                    events: outcome.events,
+                }
+            }
+        });
+    }
+
+    let subscription = match &envelope.request {
+        ClientRequest::EventsSubscribe(request) => Some(EventBusSubscription::all(request)),
+        ClientRequest::SessionSubscribe(request) => Some(EventBusSubscription::session(request)),
+        _ => None,
+    };
+    let snapshot_only = matches!(envelope.request, ClientRequest::EventsSnapshot(_));
+
+    let outcome = runtime
+        .lock()
+        .map_err(|_| io::Error::other("runtime mutex was poisoned"))?
+        .handle_request(envelope);
+
+    let accepted_subscription = matches!(
+        &outcome.response.response,
+        DaemonResponse::RequestAccepted(_)
+    )
+    .then_some(subscription)
+    .flatten();
+
+    Ok(DispatchAction::Handled {
+        response: ServerFrame::Response(outcome.response),
+        events: outcome.events,
+        subscription: accepted_subscription,
+        snapshot_only,
+    })
+}
+
 fn serve_lines_sync<R, W>(
     reader: R,
     writer: W,
@@ -251,76 +446,42 @@ where
 
     for line in reader.lines() {
         let line = line?;
-        if line.trim().is_empty() {
-            continue;
-        }
-
-        match serde_json::from_str::<RequestEnvelope>(&line) {
-            Ok(envelope) => {
-                let subscription = match &envelope.request {
-                    ClientRequest::EventsSubscribe(request) => {
-                        Some(EventBusSubscription::all(request))
-                    }
-                    ClientRequest::SessionSubscribe(request) => {
-                        Some(EventBusSubscription::session(request))
-                    }
-                    _ => None,
-                };
-                let snapshot_only = matches!(envelope.request, ClientRequest::EventsSnapshot(_));
-                if matches!(envelope.request, ClientRequest::DaemonShutdown(_)) {
-                    let response = ResponseEnvelope::new(
-                        envelope.request_id,
-                        DaemonResponse::RequestAccepted(cadis_protocol::RequestAcceptedPayload {
-                            request_id: RequestId::from("daemon.shutdown"),
-                        }),
-                    );
-                    write_frame(&mut writer, &ServerFrame::Response(response))?;
-                    shutdown.store(true, Ordering::SeqCst);
-                    return Ok(());
+        match dispatch_request(&line, &runtime)? {
+            DispatchAction::Skip => continue,
+            DispatchAction::ParseError(frame) | DispatchAction::UnsupportedVersion(frame) => {
+                write_frame(&mut writer, &frame)?;
+            }
+            DispatchAction::Shutdown(frame) => {
+                write_frame(&mut writer, &frame)?;
+                shutdown.store(true, Ordering::SeqCst);
+                return Ok(());
+            }
+            DispatchAction::MessageGeneration(pending) => {
+                serve_pending_message_generation(
+                    &mut writer,
+                    Arc::clone(&runtime),
+                    &event_log,
+                    &event_bus,
+                    *pending,
+                )?;
+            }
+            DispatchAction::MessageRejected { response, events } => {
+                write_frame(&mut writer, &response)?;
+                for event in events {
+                    emit_event(&mut writer, &event_log, &event_bus, event)?;
                 }
-                if matches!(envelope.request, ClientRequest::MessageSend(_)) {
-                    let pending = runtime
-                        .lock()
-                        .map_err(|_| io::Error::other("runtime mutex was poisoned"))?
-                        .begin_message_request(envelope);
-                    match pending {
-                        Ok(pending) => {
-                            serve_pending_message_generation(
-                                &mut writer,
-                                Arc::clone(&runtime),
-                                &event_log,
-                                &event_bus,
-                                pending,
-                            )?;
-                        }
-                        Err(outcome) => {
-                            let outcome = *outcome;
-                            write_frame(&mut writer, &ServerFrame::Response(outcome.response))?;
-                            for event in outcome.events {
-                                emit_event(&mut writer, &event_log, &event_bus, event)?;
-                            }
-                        }
-                    }
-                    continue;
-                }
-                let outcome = runtime
-                    .lock()
-                    .map_err(|_| io::Error::other("runtime mutex was poisoned"))?
-                    .handle_request(envelope);
-                let accepted_subscription = matches!(
-                    &outcome.response.response,
-                    DaemonResponse::RequestAccepted(_)
-                )
-                .then_some(subscription)
-                .flatten();
-
-                write_frame(&mut writer, &ServerFrame::Response(outcome.response))?;
-
-                if let Some(subscription) = accepted_subscription {
-                    for event in outcome.events {
+            }
+            DispatchAction::Handled {
+                response,
+                events,
+                subscription,
+                snapshot_only,
+            } => {
+                write_frame(&mut writer, &response)?;
+                if let Some(subscription) = subscription {
+                    for event in events {
                         write_frame(&mut writer, &ServerFrame::Event(event))?;
                     }
-
                     let (replay, receiver) = event_bus.subscribe(subscription);
                     for event in replay {
                         write_frame(&mut writer, &ServerFrame::Event(event))?;
@@ -329,29 +490,15 @@ where
                         write_frame(&mut writer, &ServerFrame::Event(event))?;
                     }
                     return Ok(());
-                }
-
-                if snapshot_only {
-                    for event in outcome.events {
+                } else if snapshot_only {
+                    for event in events {
                         write_frame(&mut writer, &ServerFrame::Event(event))?;
                     }
-                    continue;
+                } else {
+                    for event in events {
+                        emit_event(&mut writer, &event_log, &event_bus, event)?;
+                    }
                 }
-
-                for event in outcome.events {
-                    emit_event(&mut writer, &event_log, &event_bus, event)?;
-                }
-            }
-            Err(error) => {
-                let response = ResponseEnvelope::new(
-                    RequestId::from("req_invalid"),
-                    DaemonResponse::RequestRejected(ErrorPayload {
-                        code: "invalid_request".to_owned(),
-                        message: format!("request JSON was invalid: {error}"),
-                        retryable: false,
-                    }),
-                );
-                write_frame(&mut writer, &ServerFrame::Response(response))?;
             }
         }
     }
@@ -374,82 +521,43 @@ where
     let mut lines = reader.lines();
 
     while let Some(line) = lines.next_line().await? {
-        if line.trim().is_empty() {
-            continue;
-        }
-
-        match serde_json::from_str::<RequestEnvelope>(&line) {
-            Ok(envelope) => {
-                let subscription = match &envelope.request {
-                    ClientRequest::EventsSubscribe(request) => {
-                        Some(EventBusSubscription::all(request))
-                    }
-                    ClientRequest::SessionSubscribe(request) => {
-                        Some(EventBusSubscription::session(request))
-                    }
-                    _ => None,
-                };
-                let snapshot_only = matches!(envelope.request, ClientRequest::EventsSnapshot(_));
-                if matches!(envelope.request, ClientRequest::DaemonShutdown(_)) {
-                    let response = ResponseEnvelope::new(
-                        envelope.request_id,
-                        DaemonResponse::RequestAccepted(cadis_protocol::RequestAcceptedPayload {
-                            request_id: RequestId::from("daemon.shutdown"),
-                        }),
-                    );
-                    write_frame_async(&mut writer, &ServerFrame::Response(response)).await?;
-                    shutdown.store(true, Ordering::SeqCst);
-                    return Ok(());
-                }
-                if matches!(envelope.request, ClientRequest::MessageSend(_)) {
-                    let pending = runtime
-                        .lock()
-                        .map_err(|_| io::Error::other("runtime mutex was poisoned"))?
-                        .begin_message_request(envelope);
-                    match pending {
-                        Ok(pending) => {
-                            serve_pending_message_generation_async(
-                                &mut writer,
-                                Arc::clone(&runtime),
-                                &event_log,
-                                &event_bus,
-                                pending,
-                            )
-                            .await?;
-                        }
-                        Err(outcome) => {
-                            let outcome = *outcome;
-                            write_frame_async(
-                                &mut writer,
-                                &ServerFrame::Response(outcome.response),
-                            )
-                            .await?;
-                            for event in outcome.events {
-                                emit_event_async(&mut writer, &event_log, &event_bus, event)
-                                    .await?;
-                            }
-                        }
-                    }
-                    continue;
-                }
-                let outcome = runtime
-                    .lock()
-                    .map_err(|_| io::Error::other("runtime mutex was poisoned"))?
-                    .handle_request(envelope);
-                let accepted_subscription = matches!(
-                    &outcome.response.response,
-                    DaemonResponse::RequestAccepted(_)
+        match dispatch_request(&line, &runtime)? {
+            DispatchAction::Skip => continue,
+            DispatchAction::ParseError(frame) | DispatchAction::UnsupportedVersion(frame) => {
+                write_frame_async(&mut writer, &frame).await?;
+            }
+            DispatchAction::Shutdown(frame) => {
+                write_frame_async(&mut writer, &frame).await?;
+                shutdown.store(true, Ordering::SeqCst);
+                return Ok(());
+            }
+            DispatchAction::MessageGeneration(pending) => {
+                serve_pending_message_generation_async(
+                    &mut writer,
+                    Arc::clone(&runtime),
+                    &event_log,
+                    &event_bus,
+                    *pending,
                 )
-                .then_some(subscription)
-                .flatten();
-
-                write_frame_async(&mut writer, &ServerFrame::Response(outcome.response)).await?;
-
-                if let Some(subscription) = accepted_subscription {
-                    for event in outcome.events {
+                .await?;
+            }
+            DispatchAction::MessageRejected { response, events } => {
+                write_frame_async(&mut writer, &response).await?;
+                for event in events {
+                    emit_event_async(&mut writer, &event_log, &event_bus, event).await?;
+                }
+            }
+            DispatchAction::Handled {
+                response,
+                events,
+                subscription,
+                snapshot_only,
+            } => {
+                write_frame_async(&mut writer, &response).await?;
+                if let Some(subscription) = subscription {
+                    for event in events {
                         write_frame_async(&mut writer, &ServerFrame::Event(event)).await?;
                     }
-
                     let (replay, receiver) = event_bus.subscribe(subscription);
                     for event in replay {
                         write_frame_async(&mut writer, &ServerFrame::Event(event)).await?;
@@ -458,29 +566,15 @@ where
                         write_frame_async(&mut writer, &ServerFrame::Event(event)).await?;
                     }
                     return Ok(());
-                }
-
-                if snapshot_only {
-                    for event in outcome.events {
+                } else if snapshot_only {
+                    for event in events {
                         write_frame_async(&mut writer, &ServerFrame::Event(event)).await?;
                     }
-                    continue;
+                } else {
+                    for event in events {
+                        emit_event_async(&mut writer, &event_log, &event_bus, event).await?;
+                    }
                 }
-
-                for event in outcome.events {
-                    emit_event_async(&mut writer, &event_log, &event_bus, event).await?;
-                }
-            }
-            Err(error) => {
-                let response = ResponseEnvelope::new(
-                    RequestId::from("req_invalid"),
-                    DaemonResponse::RequestRejected(ErrorPayload {
-                        code: "invalid_request".to_owned(),
-                        message: format!("request JSON was invalid: {error}"),
-                        retryable: false,
-                    }),
-                );
-                write_frame_async(&mut writer, &ServerFrame::Response(response)).await?;
             }
         }
     }
@@ -1845,6 +1939,34 @@ mod tests {
     fn args_parse_unknown_flag_errors() {
         let result = Args::parse(["--unknown"].map(String::from));
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn verify_tcp_auth_accepts_valid_token() {
+        let input = b"{\"auth_token\":\"secret123\"}\n";
+        let mut reader = tokio::io::BufReader::new(&input[..]);
+        assert!(verify_tcp_auth(&mut reader, "secret123").await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn verify_tcp_auth_rejects_wrong_token() {
+        let input = b"{\"auth_token\":\"wrong\"}\n";
+        let mut reader = tokio::io::BufReader::new(&input[..]);
+        assert!(verify_tcp_auth(&mut reader, "secret123").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn verify_tcp_auth_rejects_malformed_json() {
+        let input = b"not json\n";
+        let mut reader = tokio::io::BufReader::new(&input[..]);
+        assert!(verify_tcp_auth(&mut reader, "secret123").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn verify_tcp_auth_rejects_empty_line() {
+        let input = b"\n";
+        let mut reader = tokio::io::BufReader::new(&input[..]);
+        assert!(verify_tcp_auth(&mut reader, "secret123").await.is_err());
     }
 }
 

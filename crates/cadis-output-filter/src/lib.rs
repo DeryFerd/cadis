@@ -45,7 +45,9 @@ pub fn filter_output(command: &str, raw: &str) -> FilterResult {
 // ---------------------------------------------------------------------------
 
 fn strip_ansi(input: &str) -> String {
-    let re = Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").expect("valid regex");
+    use std::sync::OnceLock;
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").expect("valid regex"));
     re.replace_all(input, "").into_owned()
 }
 

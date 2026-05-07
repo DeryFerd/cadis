@@ -108,6 +108,7 @@ pub enum TelegramCommand {
 pub struct TelegramAdapter {
     pub daemon_url: String,
     bot_token: String,
+    allowed_chat_ids: Vec<i64>,
     client: reqwest::Client,
 }
 
@@ -116,17 +117,25 @@ impl std::fmt::Debug for TelegramAdapter {
         f.debug_struct("TelegramAdapter")
             .field("daemon_url", &self.daemon_url)
             .field("bot_token", &"[REDACTED]")
+            .field("allowed_chat_ids_count", &self.allowed_chat_ids.len())
             .finish()
     }
 }
 
 impl TelegramAdapter {
-    pub fn new(daemon_url: String, bot_token: String) -> Self {
+    pub fn new(daemon_url: String, bot_token: String, allowed_chat_ids: Vec<i64>) -> Self {
         Self {
             daemon_url,
             bot_token,
+            allowed_chat_ids,
             client: reqwest::Client::new(),
         }
+    }
+
+    /// Returns `true` if the chat ID is in the allow-list.
+    /// An empty allow-list permits all chat IDs (backward compat).
+    pub fn is_authorized(&self, chat_id: i64) -> bool {
+        self.allowed_chat_ids.is_empty() || self.allowed_chat_ids.contains(&chat_id)
     }
 
     pub fn bot_token(&self) -> &str {
@@ -252,6 +261,12 @@ impl TelegramAdapter {
                 } else {
                     continue;
                 };
+                if !self.is_authorized(chat_id) {
+                    eprintln!(
+                        "cadis-telegram: rejected update from unauthorized chat_id={chat_id}"
+                    );
+                    continue;
+                }
                 if let Some(text) = text {
                     if let Some(cmd) = handle_update(text) {
                         handler(cmd, chat_id);
@@ -285,6 +300,12 @@ impl TelegramAdapter {
                 } else {
                     continue;
                 };
+                if !self.is_authorized(chat_id) {
+                    eprintln!(
+                        "cadis-telegram: rejected update from unauthorized chat_id={chat_id}"
+                    );
+                    continue;
+                }
                 let Some(text) = text else { continue };
                 let request_json = match handle_update(text) {
                     Some(TelegramCommand::Status) => DaemonBridge::format_status_request(),
@@ -514,7 +535,8 @@ mod tests {
 
     #[test]
     fn debug_redacts_token() {
-        let adapter = TelegramAdapter::new("http://localhost".into(), "secret-token".into());
+        let adapter =
+            TelegramAdapter::new("http://localhost".into(), "secret-token".into(), vec![]);
         let dbg = format!("{:?}", adapter);
         assert!(!dbg.contains("secret-token"));
         assert!(dbg.contains("REDACTED"));
@@ -529,7 +551,7 @@ mod tests {
 
     #[test]
     fn api_url_get_updates() {
-        let adapter = TelegramAdapter::new("http://localhost".into(), "123:ABC".into());
+        let adapter = TelegramAdapter::new("http://localhost".into(), "123:ABC".into(), vec![]);
         assert_eq!(
             adapter.api_url("getUpdates"),
             "https://api.telegram.org/bot123:ABC/getUpdates"
@@ -538,7 +560,7 @@ mod tests {
 
     #[test]
     fn api_url_send_message() {
-        let adapter = TelegramAdapter::new("http://localhost".into(), "tok".into());
+        let adapter = TelegramAdapter::new("http://localhost".into(), "tok".into(), vec![]);
         assert_eq!(
             adapter.api_url("sendMessage"),
             "https://api.telegram.org/bottok/sendMessage"
@@ -547,7 +569,7 @@ mod tests {
 
     #[test]
     fn api_url_answer_callback() {
-        let adapter = TelegramAdapter::new("http://localhost".into(), "my-token".into());
+        let adapter = TelegramAdapter::new("http://localhost".into(), "my-token".into(), vec![]);
         assert_eq!(
             adapter.api_url("answerCallbackQuery"),
             "https://api.telegram.org/botmy-token/answerCallbackQuery"
@@ -556,7 +578,7 @@ mod tests {
 
     #[test]
     fn api_url_uses_bot_token_accessor() {
-        let adapter = TelegramAdapter::new("http://localhost".into(), "secret".into());
+        let adapter = TelegramAdapter::new("http://localhost".into(), "secret".into(), vec![]);
         let url = adapter.api_url("getMe");
         assert!(url.contains(adapter.bot_token()));
         assert!(url.starts_with("https://api.telegram.org/bot"));
@@ -607,5 +629,22 @@ mod tests {
         assert_eq!(v["type"], "message.send");
         assert_eq!(v["payload"]["content"], "hello world");
         assert_eq!(v["payload"]["content_kind"], "chat");
+    }
+
+    // --- Authorization tests ---
+
+    #[test]
+    fn is_authorized_empty_allows_all() {
+        let adapter = TelegramAdapter::new("http://localhost".into(), "tok".into(), vec![]);
+        assert!(adapter.is_authorized(1));
+        assert!(adapter.is_authorized(999));
+    }
+
+    #[test]
+    fn is_authorized_specific_ids() {
+        let adapter = TelegramAdapter::new("http://localhost".into(), "tok".into(), vec![10, 20]);
+        assert!(adapter.is_authorized(10));
+        assert!(adapter.is_authorized(20));
+        assert!(!adapter.is_authorized(30));
     }
 }
