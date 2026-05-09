@@ -10,6 +10,7 @@ import {
   type SttDebugSnapshot,
   type SttHandlers,
 } from "../../lib/voice/stt.js";
+import { speak } from "../../lib/voice/tts.js";
 import { useHud, type AgentLive } from "../hudState.js";
 import { buildMentionOptions, ChatPanel, getActiveMentionQuery } from "./ChatPanel.js";
 
@@ -63,6 +64,18 @@ beforeEach(() => {
 describe("ChatPanel voice UX", () => {
   it("keeps daemon-aligned auto-speak disabled by default", () => {
     expect(DEFAULT_VOICE_PREFS.autoSpeak).toBe(false);
+  });
+
+  it("does not auto-speak when TTS is disabled", async () => {
+    useHud.setState({
+      voicePrefs: { ...DEFAULT_VOICE_PREFS, enabled: false, autoSpeak: true },
+      chat: [{ id: "cadis-final", who: "cadis", text: "Halo.", ts: Date.now(), final: true }],
+    });
+
+    render(<ChatPanel />);
+
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(speak).not.toHaveBeenCalled();
   });
 
   it("shows empty STT transcript status and opens mic debug when audio was heard", async () => {

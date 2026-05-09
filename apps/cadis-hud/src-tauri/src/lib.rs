@@ -14,8 +14,8 @@ use serde_json::Value;
 use tauri::{Emitter, Manager};
 
 use daemon_transport::{
-    connect_daemon, discover_transport, read_subscription_frames, send_cadis_request,
-    DaemonStream, DaemonTransport,
+    connect_daemon, discover_transport, read_subscription_frames, send_cadis_request, DaemonStream,
+    DaemonTransport,
 };
 use voice::{
     edge_tts_speak_blocking, local_stt_transcribe_blocking, stop_active_tts,
@@ -83,11 +83,16 @@ fn window_start_dragging(window: tauri::Window) -> Result<(), String> {
 #[tauri::command(rename_all = "camelCase")]
 async fn edge_tts_speak(
     state: tauri::State<'_, Arc<TtsPlaybackState>>,
-    text: String, voice_id: String, rate: String, pitch: String, volume: String,
+    text: String,
+    provider: Option<String>,
+    voice_id: String,
+    rate: String,
+    pitch: String,
+    volume: String,
 ) -> Result<(), String> {
     let state = Arc::clone(state.inner());
     tauri::async_runtime::spawn_blocking(move || {
-        edge_tts_speak_blocking(&state, text, voice_id, rate, pitch, volume)
+        edge_tts_speak_blocking(&state, text, provider, voice_id, rate, pitch, volume)
     })
     .await
     .map_err(|error| format!("TTS worker failed: {error}"))?
@@ -99,30 +104,45 @@ fn edge_tts_stop(state: tauri::State<'_, Arc<TtsPlaybackState>>) -> Result<(), S
 }
 
 #[tauri::command(rename_all = "camelCase")]
-async fn local_stt_transcribe(audio_base64: String, language: Option<String>) -> Result<Value, String> {
-    tauri::async_runtime::spawn_blocking(move || local_stt_transcribe_blocking(audio_base64, language))
-        .await
-        .map_err(|error| format!("STT worker failed: {error}"))?
+async fn local_stt_transcribe(
+    audio_base64: String,
+    language: Option<String>,
+) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        local_stt_transcribe_blocking(audio_base64, language)
+    })
+    .await
+    .map_err(|error| format!("STT worker failed: {error}"))?
 }
 
 #[tauri::command(rename_all = "camelCase")]
-async fn voice_doctor_preflight(renderer_mic: VoiceDoctorCheck) -> Result<VoiceDoctorReport, String> {
+async fn voice_doctor_preflight(
+    renderer_mic: VoiceDoctorCheck,
+) -> Result<VoiceDoctorReport, String> {
     tauri::async_runtime::spawn_blocking(move || voice_doctor_preflight_blocking(renderer_mic))
         .await
         .map_err(|error| format!("voice doctor worker failed: {error}"))
 }
 
 #[tauri::command]
-fn voice_tts_speak(_text: String, _voice_id: Option<String>) -> Result<(), String> { Ok(()) }
+fn voice_tts_speak(_text: String, _voice_id: Option<String>) -> Result<(), String> {
+    Ok(())
+}
 
 #[tauri::command]
-fn voice_tts_stop() -> Result<(), String> { Ok(()) }
+fn voice_tts_stop() -> Result<(), String> {
+    Ok(())
+}
 
 #[tauri::command]
-fn voice_stt_start() -> Result<(), String> { Ok(()) }
+fn voice_stt_start() -> Result<(), String> {
+    Ok(())
+}
 
 #[tauri::command]
-fn voice_stt_stop() -> Result<(), String> { Ok(()) }
+fn voice_stt_stop() -> Result<(), String> {
+    Ok(())
+}
 
 #[tauri::command]
 fn open_in_editor(path: String) -> Result<(), String> {
@@ -325,44 +345,69 @@ impl CadisSubscriptionState {
     }
 
     fn replace_active_subscription(&self, stream: DaemonStream) -> Result<(), String> {
-        let mut active = self.stream.lock().map_err(|_| "CADIS subscription state lock was poisoned".to_owned())?;
-        if let Some(existing) = active.take() { let _ = existing.shutdown(Shutdown::Both); }
+        let mut active = self
+            .stream
+            .lock()
+            .map_err(|_| "CADIS subscription state lock was poisoned".to_owned())?;
+        if let Some(existing) = active.take() {
+            let _ = existing.shutdown(Shutdown::Both);
+        }
         *active = Some(stream);
         Ok(())
     }
 
     fn close_active_subscription(&self) -> Result<(), String> {
         self.generation.fetch_add(1, Ordering::SeqCst);
-        let stream = self.stream.lock().map_err(|_| "CADIS subscription state lock was poisoned".to_owned())?.take();
-        if let Some(stream) = stream { let _ = stream.shutdown(Shutdown::Both); }
+        let stream = self
+            .stream
+            .lock()
+            .map_err(|_| "CADIS subscription state lock was poisoned".to_owned())?
+            .take();
+        if let Some(stream) = stream {
+            let _ = stream.shutdown(Shutdown::Both);
+        }
         Ok(())
     }
 
     fn clear_active_subscription_if_current(&self, generation: u64) {
-        if !self.is_current(generation) { return; }
-        if let Ok(mut active) = self.stream.lock() { active.take(); }
+        if !self.is_current(generation) {
+            return;
+        }
+        if let Ok(mut active) = self.stream.lock() {
+            active.take();
+        }
     }
 }
 
 fn start_cadis_event_subscription(
-    app: tauri::AppHandle, state: Arc<CadisSubscriptionState>,
-    transport: &DaemonTransport, request: Value,
+    app: tauri::AppHandle,
+    state: Arc<CadisSubscriptionState>,
+    transport: &DaemonTransport,
+    request: Value,
 ) -> Result<(), String> {
     let mut stream = connect_daemon(transport)?;
     serde_json::to_writer(&mut stream, &request)
         .map_err(|error| format!("could not encode CADIS subscription request: {error}"))?;
-    stream.write_all(b"\n").map_err(|error| format!("could not send CADIS subscription request: {error}"))?;
-    let active_stream = stream.try_clone().map_err(|error| format!("could not track CADIS subscription socket: {error}"))?;
+    stream
+        .write_all(b"\n")
+        .map_err(|error| format!("could not send CADIS subscription request: {error}"))?;
+    let active_stream = stream
+        .try_clone()
+        .map_err(|error| format!("could not track CADIS subscription socket: {error}"))?;
     let generation = state.next_generation();
     state.replace_active_subscription(active_stream)?;
     thread::spawn(move || {
         let result = read_subscription_frames(stream, |frame| {
-            app.emit(CADIS_FRAME_EVENT, frame).map_err(|error| io::Error::other(error.to_string()))
+            app.emit(CADIS_FRAME_EVENT, frame)
+                .map_err(|error| io::Error::other(error.to_string()))
         });
         if state.is_current(generation) {
             state.clear_active_subscription_if_current(generation);
             let error = result.err().map(|error| error.to_string());
-            let _ = app.emit(CADIS_SUBSCRIPTION_CLOSED_EVENT, CadisSubscriptionClosed { generation, error });
+            let _ = app.emit(
+                CADIS_SUBSCRIPTION_CLOSED_EVENT,
+                CadisSubscriptionClosed { generation, error },
+            );
         }
     });
     Ok(())
@@ -375,19 +420,31 @@ fn start_cadis_event_subscription(
 fn set_cadis_window_icon(window: &tauri::WebviewWindow) -> Result<(), String> {
     let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png"))
         .map_err(|error| format!("could not load CADIS icon: {error}"))?;
-    window.set_icon(icon).map_err(|error| format!("could not set CADIS window icon: {error}"))
+    window
+        .set_icon(icon)
+        .map_err(|error| format!("could not set CADIS window icon: {error}"))
 }
 
 #[cfg(target_os = "linux")]
 fn install_microphone_permission_handler(window: &tauri::WebviewWindow) {
     let _ = window.with_webview(|webview| {
         use webkit2gtk::glib::prelude::Cast;
-        use webkit2gtk::{PermissionRequestExt, SettingsExt, UserMediaPermissionRequest, UserMediaPermissionRequestExt, WebViewExt};
+        use webkit2gtk::{
+            PermissionRequestExt, SettingsExt, UserMediaPermissionRequest,
+            UserMediaPermissionRequestExt, WebViewExt,
+        };
         let inner = webview.inner();
-        if let Some(settings) = inner.settings() { settings.set_enable_media_stream(true); }
+        if let Some(settings) = inner.settings() {
+            settings.set_enable_media_stream(true);
+        }
         inner.connect_permission_request(|_, request| {
-            let Some(user_media) = request.dynamic_cast_ref::<UserMediaPermissionRequest>() else { return false; };
-            if user_media.is_for_audio_device() && !user_media.is_for_video_device() { user_media.allow(); return true; }
+            let Some(user_media) = request.dynamic_cast_ref::<UserMediaPermissionRequest>() else {
+                return false;
+            };
+            if user_media.is_for_audio_device() && !user_media.is_for_video_device() {
+                user_media.allow();
+                return true;
+            }
             false
         });
     });
@@ -442,6 +499,7 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::daemon_transport::*;
+    use super::{editor_launch_plan, parse_editor_command};
     use std::env;
     use std::fs;
     #[cfg(unix)]
@@ -456,24 +514,37 @@ mod tests {
     #[test]
     fn discovery_prefers_explicit_socket_path() {
         let env = DiscoveryEnv {
-            cadis_tcp_port: None, cadis_hud_socket: Some("/tmp/hud.sock".to_owned()),
-            cadis_socket: Some("/tmp/cadis.sock".to_owned()), home: Some(PathBuf::from("/home/cadis")),
+            cadis_tcp_port: None,
+            cadis_hud_socket: Some("/tmp/hud.sock".to_owned()),
+            cadis_socket: Some("/tmp/cadis.sock".to_owned()),
+            home: Some(PathBuf::from("/home/cadis")),
             xdg_runtime_dir: Some("/run/user/1000".to_owned()),
         };
-        let transport = discover_transport_with_env(Some("~/explicit.sock".to_owned()), &env).unwrap();
-        match transport { DaemonTransport::Socket(path) => assert_eq!(path, PathBuf::from("/home/cadis/explicit.sock")), _ => panic!("expected Socket transport") }
+        let transport =
+            discover_transport_with_env(Some("~/explicit.sock".to_owned()), &env).unwrap();
+        match transport {
+            DaemonTransport::Socket(path) => {
+                assert_eq!(path, PathBuf::from("/home/cadis/explicit.sock"))
+            }
+            _ => panic!("expected Socket transport"),
+        }
     }
 
     #[cfg(unix)]
     #[test]
     fn discovery_prefers_hud_env_over_generic_env() {
         let env = DiscoveryEnv {
-            cadis_tcp_port: None, cadis_hud_socket: Some("/tmp/hud.sock".to_owned()),
-            cadis_socket: Some("/tmp/cadis.sock".to_owned()), home: Some(PathBuf::from("/home/cadis")),
+            cadis_tcp_port: None,
+            cadis_hud_socket: Some("/tmp/hud.sock".to_owned()),
+            cadis_socket: Some("/tmp/cadis.sock".to_owned()),
+            home: Some(PathBuf::from("/home/cadis")),
             xdg_runtime_dir: None,
         };
         let transport = discover_transport_with_env(None, &env).unwrap();
-        match transport { DaemonTransport::Socket(path) => assert_eq!(path, PathBuf::from("/tmp/hud.sock")), _ => panic!("expected Socket transport") }
+        match transport {
+            DaemonTransport::Socket(path) => assert_eq!(path, PathBuf::from("/tmp/hud.sock")),
+            _ => panic!("expected Socket transport"),
+        }
     }
 
     #[cfg(unix)]
@@ -481,38 +552,74 @@ mod tests {
     fn discovery_uses_config_before_runtime_default() {
         let home = unique_temp_dir();
         fs::create_dir_all(home.join(".cadis")).unwrap();
-        fs::write(home.join(CADIS_CONFIG_RELATIVE_PATH), "socket_path = \"~/.cadis/custom.sock\"\n").unwrap();
-        let env = DiscoveryEnv { cadis_tcp_port: None, home: Some(home.clone()), xdg_runtime_dir: Some("/run/user/1000".to_owned()), ..DiscoveryEnv::default() };
+        fs::write(
+            home.join(CADIS_CONFIG_RELATIVE_PATH),
+            "socket_path = \"~/.cadis/custom.sock\"\n",
+        )
+        .unwrap();
+        let env = DiscoveryEnv {
+            cadis_tcp_port: None,
+            home: Some(home.clone()),
+            xdg_runtime_dir: Some("/run/user/1000".to_owned()),
+            ..DiscoveryEnv::default()
+        };
         let transport = discover_transport_with_env(None, &env).unwrap();
-        match transport { DaemonTransport::Socket(path) => assert_eq!(path, home.join(".cadis/custom.sock")), _ => panic!("expected Socket transport") }
+        match transport {
+            DaemonTransport::Socket(path) => assert_eq!(path, home.join(".cadis/custom.sock")),
+            _ => panic!("expected Socket transport"),
+        }
         fs::remove_dir_all(home).unwrap();
     }
 
     #[cfg(unix)]
     #[test]
     fn discovery_uses_xdg_runtime_dir_before_home_default() {
-        let env = DiscoveryEnv { cadis_tcp_port: None, home: Some(PathBuf::from("/home/cadis")), xdg_runtime_dir: Some("/run/user/1000".to_owned()), ..DiscoveryEnv::default() };
+        let env = DiscoveryEnv {
+            cadis_tcp_port: None,
+            home: Some(PathBuf::from("/home/cadis")),
+            xdg_runtime_dir: Some("/run/user/1000".to_owned()),
+            ..DiscoveryEnv::default()
+        };
         let transport = discover_transport_with_env(None, &env).unwrap();
-        match transport { DaemonTransport::Socket(path) => assert_eq!(path, PathBuf::from("/run/user/1000/cadis/cadisd.sock")), _ => panic!("expected Socket transport") }
+        match transport {
+            DaemonTransport::Socket(path) => {
+                assert_eq!(path, PathBuf::from("/run/user/1000/cadis/cadisd.sock"))
+            }
+            _ => panic!("expected Socket transport"),
+        }
     }
 
     #[test]
     fn discovery_tcp_port_env_takes_priority() {
         let env = DiscoveryEnv {
-            cadis_tcp_port: Some("9999".to_owned()), cadis_hud_socket: Some("/tmp/hud.sock".to_owned()),
-            cadis_socket: Some("/tmp/cadis.sock".to_owned()), home: Some(PathBuf::from("/home/cadis")),
-            #[cfg(unix)] xdg_runtime_dir: Some("/run/user/1000".to_owned()),
+            cadis_tcp_port: Some("9999".to_owned()),
+            cadis_hud_socket: Some("/tmp/hud.sock".to_owned()),
+            cadis_socket: Some("/tmp/cadis.sock".to_owned()),
+            home: Some(PathBuf::from("/home/cadis")),
+            #[cfg(unix)]
+            xdg_runtime_dir: Some("/run/user/1000".to_owned()),
         };
         let transport = discover_transport_with_env(None, &env).unwrap();
-        match transport { DaemonTransport::Tcp(addr) => assert_eq!(addr, "127.0.0.1:9999"), #[cfg(unix)] _ => panic!("expected Tcp transport") }
+        match transport {
+            DaemonTransport::Tcp(addr) => assert_eq!(addr, "127.0.0.1:9999"),
+            #[cfg(unix)]
+            _ => panic!("expected Tcp transport"),
+        }
     }
 
     #[cfg(not(unix))]
     #[test]
     fn discovery_defaults_to_tcp_on_non_unix() {
-        let env = DiscoveryEnv { cadis_tcp_port: None, cadis_hud_socket: None, cadis_socket: None, home: None };
+        let env = DiscoveryEnv {
+            cadis_tcp_port: None,
+            cadis_hud_socket: None,
+            cadis_socket: None,
+            home: None,
+        };
         let transport = discover_transport_with_env(None, &env).unwrap();
-        match transport { DaemonTransport::Tcp(addr) => assert_eq!(addr, DEFAULT_TCP_ADDRESS) }
+        match transport {
+            DaemonTransport::Tcp(addr) => assert_eq!(addr, DEFAULT_TCP_ADDRESS),
+        }
     }
 
     #[cfg(unix)]
@@ -525,14 +632,23 @@ mod tests {
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
             let mut line = String::new();
-            BufReader::new(stream.try_clone().unwrap()).read_line(&mut line).unwrap();
+            BufReader::new(stream.try_clone().unwrap())
+                .read_line(&mut line)
+                .unwrap();
             assert_eq!(line.trim(), r#"{"type":"daemon.status"}"#);
             stream.write_all(b"{\"type\":\"request.accepted\"}\n\n{\"type\":\"daemon.status.response\",\"payload\":{\"status\":\"ok\"}}\n").unwrap();
         });
         let transport = DaemonTransport::Socket(socket_path);
-        let frames = send_cadis_request(&transport, serde_json::json!({"type": "daemon.status"})).unwrap();
+        let frames =
+            send_cadis_request(&transport, serde_json::json!({"type": "daemon.status"})).unwrap();
         server.join().unwrap();
-        assert_eq!(frames, vec![serde_json::json!({"type": "request.accepted"}), serde_json::json!({"type": "daemon.status.response", "payload": {"status": "ok"}})]);
+        assert_eq!(
+            frames,
+            vec![
+                serde_json::json!({"type": "request.accepted"}),
+                serde_json::json!({"type": "daemon.status.response", "payload": {"status": "ok"}})
+            ]
+        );
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -545,7 +661,11 @@ mod tests {
             writer.write_all(b"{\"frame\":\"response\",\"payload\":{\"type\":\"request.accepted\"}}\n\n{\"frame\":\"event\",\"payload\":{\"event_id\":\"evt_1\",\"type\":\"agent.list.response\",\"payload\":{\"agents\":[]}}}\n").unwrap();
         });
         let mut frames = Vec::new();
-        read_subscription_frames(DaemonStream::Unix(reader), |frame| { frames.push(frame); Ok(()) }).unwrap();
+        read_subscription_frames(DaemonStream::Unix(reader), |frame| {
+            frames.push(frame);
+            Ok(())
+        })
+        .unwrap();
         server.join().unwrap();
         assert_eq!(frames.len(), 2);
         assert_eq!(frames[0]["frame"], "response");
@@ -619,7 +739,10 @@ mod tests {
     }
 
     fn unique_temp_dir() -> PathBuf {
-        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         env::temp_dir().join(format!("cadis-hud-test-{}-{nanos}", std::process::id()))
     }
 }

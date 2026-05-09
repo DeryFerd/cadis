@@ -26,15 +26,17 @@ Provider responsibilities:
 Initial provider options:
 
 - `edge`
+- `elevenlabs`
 - `openai`
 - `system`
 - `stub`
 
 The `stub` provider is required for deterministic tests.
-The first daemon-owned provider slice may implement `edge`, `openai`, and
-`system` as local stubs. Stubs must report provider identity, curated voices,
-and lifecycle success or structured failure without making external API calls,
-spawning compatibility helpers, or reading provider credentials.
+Provider credentials must remain in environment variables or local secret files,
+never protocol payloads or committed config. Stubs must report provider identity,
+curated voices, and lifecycle success or structured failure without making
+external API calls, spawning compatibility helpers, or reading provider
+credentials.
 
 ## 4. Voice Preferences
 
@@ -67,12 +69,18 @@ Default voice:
 id-ID-GadisNeural
 ```
 
+Provider defaults may be exposed for convenience, but `voice_id` is always
+user-configurable provider data. Runtime routing must use the selected
+`provider`; it must not infer ElevenLabs or any other provider from one
+hard-coded voice ID.
+
 ## 5. Curated Voice Catalog
 
 Initial curated voices:
 
 | ID | Label | Locale | Gender |
 | --- | --- | --- | --- |
+| provider default | ElevenLabs Default | id-ID | Neutral |
 | `id-ID-ArdiNeural` | Ardi (Indonesian, Male) | id-ID | Male |
 | `id-ID-GadisNeural` | Gadis (Indonesian, Female) | id-ID | Female |
 | `ms-MY-OsmanNeural` | Osman (Malay, Male) | ms-MY | Male |

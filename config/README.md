@@ -11,8 +11,9 @@ Runtime user configuration defaults to:
 Do not commit real provider keys, Telegram tokens, or local private paths.
 
 Voice config is daemon-owned. Supported visible TTS provider IDs are `edge`,
-`openai`, and `system`; `stub` is reserved for deterministic tests. Current
-provider implementations are local stubs and must not include API keys.
+`elevenlabs`, `openai`, and `system`; `stub` is reserved for deterministic
+tests. `voice_id` is provider-specific and can be replaced locally. Provider
+keys must stay in local environment or secret files and must not be committed.
 
 The desktop MVP example is:
 

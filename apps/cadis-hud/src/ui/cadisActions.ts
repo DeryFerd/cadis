@@ -139,7 +139,8 @@ export function persistAlwaysOnTopPreference(alwaysOnTop: boolean): void {
 export function persistVoicePreferences(prefs: VoicePrefs): void {
   sendUiPreferencesPatch({
     voice: {
-      enabled: true,
+      enabled: prefs.enabled,
+      provider: prefs.provider,
       voice_id: prefs.voiceId,
       rate: prefs.rate,
       pitch: prefs.pitch,

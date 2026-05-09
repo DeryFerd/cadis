@@ -1,12 +1,12 @@
 # Protocol Freeze — v1.0 Stable Subset
 
 This document defines the stable protocol surface for C.A.D.I.S. protocol
-version `0.1`. Types listed here will not receive breaking changes in any
+version `0.2`. Types listed here will not receive breaking changes in any
 v1.x release without a major version bump.
 
 ## Protocol version
 
-Current: **`0.1`** (`CURRENT_PROTOCOL_VERSION`).
+Current: **`0.2`** (`CURRENT_PROTOCOL_VERSION`).
 
 ## Transport format
 
@@ -24,8 +24,8 @@ Every line sent by `cadisd` is a `ServerFrame`, tagged by `frame`:
 | `event`      | Asynchronous `EventEnvelope` from the daemon      |
 
 ```json
-{ "frame": "response", "payload": { "protocol_version": "0.1", "request_id": "…", "type": "…", "payload": {…} } }
-{ "frame": "event",    "payload": { "protocol_version": "0.1", "event_id": "…", "timestamp": "…", "source": "cadisd", "type": "…", "payload": {…} } }
+{ "frame": "response", "payload": { "protocol_version": "0.2", "request_id": "…", "type": "…", "payload": {…} } }
+{ "frame": "event",    "payload": { "protocol_version": "0.2", "event_id": "…", "timestamp": "…", "source": "cadisd", "type": "…", "payload": {…} } }
 ```
 
 ## Stable request set — `ClientRequest`

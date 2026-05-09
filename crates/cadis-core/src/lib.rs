@@ -81,6 +81,7 @@ const WORKER_COMMAND_LOG_LIMIT_BYTES: usize = 4 * 1024;
 const WORKER_COMMAND_SUMMARY_LIMIT_BYTES: usize = 512;
 const AGENT_PERSONA_MAX_CHARS: usize = 1_200;
 const AGENT_CONTEXT_TASK_MAX_CHARS: usize = 140;
+const HUMANIZER_SKILL_PROMPT: &str = "Before answering, apply the Humanizer skill: reply in the user's language, sound natural and conversational, keep the response direct, avoid robotic catalogues, and preserve technical accuracy.";
 
 /// Runtime options supplied by the daemon process.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2989,15 +2990,16 @@ impl Runtime {
         } else {
             String::new()
         };
+        let humanizer = format!("\n\nHumanizer skill:\n{HUMANIZER_SKILL_PROMPT}");
         if agent.id.as_str() == "main" {
             return format!(
-                "You are CADIS, a local-first AI assistant and the orchestrator for the local CADIS agent cluster. You have access to file, shell, and git tools. Always ask for approval before risky operations. Use the runtime state to route work, avoid duplicate work, and summarize what other agents are doing when useful.{}{}{}\n\nUser request:\n{}",
-                specialist, runtime_context, memory_prefix, content
+                "You are CADIS, a local-first AI assistant and the orchestrator for the local CADIS agent cluster. You have access to file, shell, and git tools. Always ask for approval before risky operations. Use the runtime state to route work, avoid duplicate work, and summarize what other agents are doing when useful. Keep normal chat answers short: 2-5 concise sentences or bullets, and expand only when the user asks for detail. Do not mention internal sandbox, session permissions, or execution limits unless they directly affect the user's request.{}{}{}{}\n\nUser request:\n{}",
+                humanizer, specialist, runtime_context, memory_prefix, content
             );
         }
         format!(
-            "You are {} ({}) in the CADIS multi-agent runtime. Answer only for your role and keep the response concise unless the user asks for detail. Always respect CADIS approval and tool safety policy.{}{}\n\nUser request:\n{}",
-            agent.display_name, agent.role.as_str(), specialist, memory_prefix, content
+            "You are {} ({}) in the CADIS multi-agent runtime. Answer only for your role and keep the response concise unless the user asks for detail. Always respect CADIS approval and tool safety policy.{}{}{}\n\nUser request:\n{}",
+            agent.display_name, agent.role.as_str(), humanizer, specialist, memory_prefix, content
         )
     }
 
@@ -9159,7 +9161,7 @@ mod tests {
 
     #[test]
     fn voice_provider_stubs_report_curated_catalog_without_external_calls() {
-        for provider_id in ["edge", "openai", "system", "stub"] {
+        for provider_id in ["edge", "elevenlabs", "openai", "system", "stub"] {
             let provider = tts_provider_from_config(provider_id);
             assert_eq!(provider.id(), provider_id);
             let voices = provider.supported_voices();
@@ -9169,6 +9171,12 @@ mod tests {
             );
             if provider_id != "system" {
                 assert!(voices.iter().any(|voice| voice.id == "id-ID-GadisNeural"));
+            }
+            if provider_id == "elevenlabs" {
+                assert!(voices
+                    .iter()
+                    .any(|voice| voice.label == "ElevenLabs Default"));
+                assert!(is_supported_voice_provider("elevenlabs"));
             }
         }
     }
@@ -13021,6 +13029,31 @@ mod tests {
         assert!(prompt.contains("codex / Codex"));
         assert!(prompt.contains("build the specialist selector"));
         assert!(prompt.contains("Recent agent sessions:"));
+    }
+
+    #[test]
+    fn main_agent_prompt_defaults_to_short_chat_answers() {
+        let captured = Arc::new(Mutex::new(String::new()));
+        let provider = PromptCaptureProvider {
+            prompt: Arc::clone(&captured),
+        };
+        let mut runtime = runtime_with_provider(Box::new(provider), "prompt-capture");
+
+        let _ = runtime.handle_request(RequestEnvelope::new(
+            RequestId::from("req_main"),
+            ClientId::from("hud_1"),
+            ClientRequest::MessageSend(MessageSendRequest {
+                session_id: None,
+                target_agent_id: Some(AgentId::from("main")),
+                content: "kamu bisa apa saja?".to_owned(),
+                content_kind: ContentKind::Chat,
+            }),
+        ));
+
+        let prompt = captured.lock().expect("prompt lock should not be poisoned");
+        assert!(prompt.contains("Keep normal chat answers short"));
+        assert!(prompt.contains("Do not mention internal sandbox"));
+        assert!(prompt.contains("Humanizer skill"));
     }
 
     #[test]

@@ -5,7 +5,7 @@
  *                       → CADIS routes to the active chat agent
  *                       → assistant message arrives as message delta/completed frames
  *                       → store.pushChat fires
- *                       → if voicePrefs.autoSpeak: edge-tts speaks the text
+ *                       → if voicePrefs.enabled + autoSpeak: edge-tts speaks the text
  *
  * Mic button captures local audio and sends a WAV payload to the Tauri STT command.
  */
@@ -69,16 +69,16 @@ export function ChatPanel() {
 
   useEffect(() => {
     const last = messages[messages.length - 1];
-    if (!prefs.autoSpeak && last?.who === "cadis" && last.final !== false) {
+    if ((!prefs.enabled || !prefs.autoSpeak) && last?.who === "cadis" && last.final !== false) {
       setVoiceState("idle");
     }
-  }, [messages, prefs.autoSpeak, setVoiceState]);
+  }, [messages, prefs.enabled, prefs.autoSpeak, setVoiceState]);
 
   // Auto-speak CADIS final replies immediately; hold back partial streams.
   const lastTextRef = useRef<string>("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (!prefs.autoSpeak) return;
+    if (!prefs.enabled || !prefs.autoSpeak) return;
     const last = messages[messages.length - 1];
     if (!last || last.who !== "cadis") return;
     if (lastSpokenIdRef.current === last.id) return;

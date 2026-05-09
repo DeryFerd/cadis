@@ -55,6 +55,9 @@ export function _setStreamingBySession(map: Map<string, { id: string; text: stri
 
 /** Module-level lastEventId shared with connection layer via getter/setter. */
 let lastEventId: string | null = null;
+const processedEventIds = new Set<string>();
+const processedEventOrder: string[] = [];
+const MAX_PROCESSED_EVENT_IDS = 2_048;
 
 export function _getLastEventId(): string | null {
   return lastEventId;
@@ -62,6 +65,11 @@ export function _getLastEventId(): string | null {
 
 export function _setLastEventId(value: string | null): void {
   lastEventId = value;
+}
+
+export function _resetProcessedEventIds(): void {
+  processedEventIds.clear();
+  processedEventOrder.length = 0;
 }
 
 export function handleFrames(frames: CadisFrame[]): void {
@@ -75,8 +83,21 @@ export function handleCadisFrameForTest(frame: CadisFrame): void {
 export function handleFrame(frame: CadisFrame): void {
   const envelope = unwrapEnvelope(frame);
   if (!envelope || typeof envelope.type !== "string") return;
-  if (typeof envelope.event_id === "string" && envelope.event_id) lastEventId = envelope.event_id;
+  if (typeof envelope.event_id === "string" && envelope.event_id) {
+    if (processedEventIds.has(envelope.event_id)) return;
+    rememberProcessedEventId(envelope.event_id);
+    lastEventId = envelope.event_id;
+  }
   handleMessage(envelope.type, envelope.payload, readSessionId(envelope));
+}
+
+function rememberProcessedEventId(eventId: string): void {
+  processedEventIds.add(eventId);
+  processedEventOrder.push(eventId);
+  while (processedEventOrder.length > MAX_PROCESSED_EVENT_IDS) {
+    const stale = processedEventOrder.shift();
+    if (stale) processedEventIds.delete(stale);
+  }
 }
 
 export function unwrapEnvelope(frame: CadisFrame): CadisEnvelope | null {
@@ -246,6 +267,9 @@ export function handlePreferences(payload: unknown): void {
   if (opacity !== undefined) useHud.getState().setBackgroundOpacity(opacity);
 
   const voicePatch: Partial<VoicePrefs> = {};
+  if (typeof voice.enabled === "boolean") voicePatch.enabled = voice.enabled;
+  const provider = stringFrom(voice.provider);
+  if (provider === "edge" || provider === "elevenlabs") voicePatch.provider = provider;
   const voiceId = stringFrom(voice.voice_id);
   if (voiceId) voicePatch.voiceId = voiceId;
   const rate = numberFrom(voice.rate);

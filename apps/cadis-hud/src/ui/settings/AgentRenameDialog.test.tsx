@@ -61,6 +61,12 @@ describe("AgentRenameDialog", () => {
     expect(input.maxLength).toBe(32);
   });
 
+  it("offers the Humanizer specialist option", () => {
+    render(createElement(AgentRenameDialog));
+
+    expect(screen.getByRole("option", { name: "Humanizer" })).toBeInTheDocument();
+  });
+
   it("disables save while disconnected", () => {
     useHud.setState({ gateway: "disconnected" });
     render(createElement(AgentRenameDialog));

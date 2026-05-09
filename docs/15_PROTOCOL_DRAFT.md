@@ -18,7 +18,7 @@ Every client request should include:
 
 ```json
 {
-  "protocol_version": "0.1",
+  "protocol_version": "0.2",
   "request_id": "req_...",
   "client_id": "cli_...",
   "type": "session.create",
@@ -30,7 +30,7 @@ Every daemon event should include:
 
 ```json
 {
-  "protocol_version": "0.1",
+  "protocol_version": "0.2",
   "event_id": "evt_...",
   "session_id": "ses_...",
   "timestamp": "2026-04-26T00:00:00Z",
@@ -47,7 +47,7 @@ client:
 {
   "frame": "response",
   "payload": {
-    "protocol_version": "0.1",
+    "protocol_version": "0.2",
     "request_id": "req_...",
     "type": "daemon.status.response",
     "payload": {}
@@ -59,7 +59,7 @@ client:
 {
   "frame": "event",
   "payload": {
-    "protocol_version": "0.1",
+    "protocol_version": "0.2",
     "event_id": "evt_...",
     "timestamp": "2026-04-26T00:00:00Z",
     "source": "cadisd",
@@ -121,7 +121,7 @@ Example:
 
 ```json
 {
-  "protocol_version": "0.1",
+  "protocol_version": "0.2",
   "request_id": "req_...",
   "client_id": "hud_...",
   "type": "events.subscribe",
@@ -191,7 +191,7 @@ Example:
 
 ```json
 {
-  "protocol_version": "0.1",
+  "protocol_version": "0.2",
   "request_id": "req_...",
   "client_id": "cli_...",
   "type": "worker.tail",
@@ -206,7 +206,7 @@ Example:
 
 ```json
 {
-  "protocol_version": "0.1",
+  "protocol_version": "0.2",
   "request_id": "req_...",
   "client_id": "cli_...",
   "type": "worker.result",
@@ -226,7 +226,7 @@ Example:
 
 ```json
 {
-  "protocol_version": "0.1",
+  "protocol_version": "0.2",
   "request_id": "req_...",
   "client_id": "cli_...",
   "type": "session.subscribe",
@@ -253,7 +253,7 @@ Example:
 
 ```json
 {
-  "protocol_version": "0.1",
+  "protocol_version": "0.2",
   "request_id": "req_...",
   "client_id": "cli_...",
   "type": "tool.call",
@@ -364,7 +364,7 @@ secret/system directories.
 
 ```json
 {
-  "protocol_version": "0.1",
+  "protocol_version": "0.2",
   "request_id": "req_...",
   "client_id": "cli_...",
   "type": "workspace.register",
@@ -388,7 +388,7 @@ context; grants with `agent_id` require matching `tool.call.agent_id`.
 
 ```json
 {
-  "protocol_version": "0.1",
+  "protocol_version": "0.2",
   "request_id": "req_...",
   "client_id": "cli_...",
   "type": "workspace.grant",
@@ -422,7 +422,7 @@ daemon.status.response
 {
   "status": "ok",
   "version": "0.1.0",
-  "protocol_version": "0.1",
+  "protocol_version": "0.2",
   "cadis_home": "/home/user/.cadis",
   "socket_path": "/run/user/1000/cadis/cadisd.sock",
   "sessions": 0,
@@ -852,9 +852,11 @@ actions.
 
 `cadisd` stores the specialist profile on the target agent and confirms with
 `agent.specialist.changed`. Future `message.send` requests routed to that agent
-include the specialist persona in the daemon-built model prompt. The main CADIS
-agent also receives a daemon-owned runtime summary of agent/session/worker state
-so it can orchestrate with awareness of what other agents are doing.
+include the specialist persona in the daemon-built model prompt. CADIS also
+applies a daemon-owned Humanizer skill before responses so chat stays natural,
+concise, and in the user's language. The main CADIS agent also receives a
+daemon-owned runtime summary of agent/session/worker state so it can orchestrate
+with awareness of what other agents are doing.
 
 ### `agent.spawn`
 
@@ -910,10 +912,12 @@ remains the local capture/playback bridge for microphone permissions,
 `MediaRecorder`, WebAudio PCM fallback, whisper execution, and native audio
 playback.
 
-Supported daemon-visible TTS provider IDs are `edge`, `openai`, and `system`.
-The `stub` provider is available for deterministic tests. In this slice all
-provider implementations are daemon-local stubs: they validate policy and emit
-voice lifecycle events without calling external APIs or reading secrets.
+Supported daemon-visible TTS provider IDs are `edge`, `elevenlabs`, `openai`,
+and `system`. The `stub` provider is available for deterministic tests. Provider
+credentials remain local environment or local secret-file state and are never
+part of protocol payloads. `voice_id` is treated as user-configurable
+provider data; clients must not infer the provider from a single hard-coded
+voice ID.
 
 ```json
 {

@@ -125,9 +125,10 @@ always_on_top = false
 
 [voice]
 enabled = false
-# Supported visible providers: "edge", "openai", "system".
-# "stub" is reserved for deterministic tests. Current provider implementations
-# are daemon-local stubs and do not call external APIs.
+# Supported visible providers: "edge", "elevenlabs", "openai", "system".
+# "stub" is reserved for deterministic tests.
+# For ElevenLabs, set CADIS_ELEVENLABS_API_KEY or
+# ~/.cadis/secrets/elevenlabs_api_key locally; never commit provider secrets.
 provider = "edge"
 voice_id = "id-ID-GadisNeural"
 stt_language = "auto"
@@ -488,10 +489,12 @@ the effective provider and model used for the response.
 Per-agent specialist selections set through `agent.specialist.set` are stored by
 `cadisd` and included in future daemon-built prompts for that agent. The HUD
 offers curated specialist choices such as Engineering, Research, Marketing,
-Product, Design, Data, Automation, Security, Operations, Finance, and Writing,
-plus a Custom persona. The main CADIS prompt also includes a compact runtime
-summary of known agents, recent agent sessions, and workers so orchestration can
-account for what the rest of the cluster is doing.
+Product, Design, Data, Automation, Security, Operations, Finance, Writing, and
+Humanizer, plus a Custom persona. The daemon also applies a built-in Humanizer
+skill before model responses so normal chat stays natural, concise, and in the
+user's language. The main CADIS prompt includes a compact runtime summary of
+known agents, recent agent sessions, and workers so orchestration can account
+for what the rest of the cluster is doing.
 
 The `models.list` protocol response exposes conservative readiness metadata for
 clients and uses the configured `ollama_model` and `openai_model` as
@@ -555,14 +558,21 @@ authoritative.
 
 Daemon-owned voice preferences read `[voice].provider`, `[voice].voice_id`,
 `[voice].stt_language`, and `[voice].max_spoken_chars` for status, doctor, and
-preflight reporting. The current green slice supports `edge`, `openai`, and
-`system` provider labels at the protocol/config layer; HUD/Tauri still performs
-local capture and playback.
+preflight reporting. The current green slice supports `edge`, `elevenlabs`,
+`openai`, and `system` provider labels at the protocol/config layer. HUD/Tauri
+still performs local capture and playback. `voice_id` is provider-specific:
+CADIS ships provider defaults for first-run setup, and users may replace the
+value with their own Edge or ElevenLabs voice ID without changing code.
 
 HUD voice input reads `CADIS_WHISPER_CLI`, `WHISPER_CLI`,
 `CADIS_WHISPER_MODEL`, `WHISPER_MODEL`, `CADIS_WHISPER_LANGUAGE`, and
 `WHISPER_LANGUAGE`. `CADIS_HUD_NODE` can point the Tauri side at a specific
 Node.js binary for local voice helper execution.
+
+ElevenLabs TTS reads `CADIS_ELEVENLABS_API_KEY` first, then
+`ELEVENLABS_API_KEY`, then `~/.cadis/secrets/elevenlabs_api_key`. Optional
+overrides are `CADIS_ELEVENLABS_BASE_URL`, `CADIS_ELEVENLABS_MODEL`, and
+`CADIS_ELEVENLABS_OUTPUT_FORMAT`.
 
 `CODEX_API_KEY` is consumed by the official Codex CLI when that CLI is
 configured for API-key auth; CADIS does not read it directly. `TELEGRAM_BOT_TOKEN`

@@ -15,7 +15,7 @@ export const mockCadisDaemonWorkerStream: MockCadisFrame[] = [
   {
     frame: "event",
     payload: {
-      protocol_version: "0.1",
+      protocol_version: "0.2",
       event_id: "evt_mock_001",
       timestamp: "2026-04-26T00:00:00Z",
       source: "cadisd",
@@ -26,7 +26,7 @@ export const mockCadisDaemonWorkerStream: MockCadisFrame[] = [
   {
     frame: "event",
     payload: {
-      protocol_version: "0.1",
+      protocol_version: "0.2",
       event_id: "evt_mock_002",
       timestamp: "2026-04-26T00:00:01Z",
       source: "cadisd",
@@ -45,7 +45,7 @@ export const mockCadisDaemonWorkerStream: MockCadisFrame[] = [
   {
     frame: "event",
     payload: {
-      protocol_version: "0.1",
+      protocol_version: "0.2",
       event_id: "evt_mock_003",
       timestamp: "2026-04-26T00:00:02Z",
       source: "cadisd",
@@ -68,7 +68,7 @@ export const mockCadisDaemonWorkerStream: MockCadisFrame[] = [
   {
     frame: "event",
     payload: {
-      protocol_version: "0.1",
+      protocol_version: "0.2",
       event_id: "evt_mock_004",
       timestamp: "2026-04-26T00:00:03Z",
       source: "cadisd",
@@ -102,7 +102,7 @@ export const mockCadisDaemonWorkerStream: MockCadisFrame[] = [
   {
     frame: "event",
     payload: {
-      protocol_version: "0.1",
+      protocol_version: "0.2",
       event_id: "evt_mock_005",
       timestamp: "2026-04-26T00:00:04Z",
       source: "cadisd",
@@ -119,7 +119,7 @@ export const mockCadisDaemonWorkerStream: MockCadisFrame[] = [
   {
     frame: "event",
     payload: {
-      protocol_version: "0.1",
+      protocol_version: "0.2",
       event_id: "evt_mock_006",
       timestamp: "2026-04-26T00:00:05Z",
       source: "cadisd",
@@ -142,7 +142,7 @@ export const mockCadisDaemonWorkerStream: MockCadisFrame[] = [
   {
     frame: "event",
     payload: {
-      protocol_version: "0.1",
+      protocol_version: "0.2",
       event_id: "evt_mock_007",
       timestamp: "2026-04-26T00:00:06Z",
       source: "cadisd",
@@ -160,7 +160,7 @@ export const mockCadisDaemonWorkerStream: MockCadisFrame[] = [
   {
     frame: "event",
     payload: {
-      protocol_version: "0.1",
+      protocol_version: "0.2",
       event_id: "evt_mock_008",
       timestamp: "2026-04-26T00:00:07Z",
       source: "cadisd",

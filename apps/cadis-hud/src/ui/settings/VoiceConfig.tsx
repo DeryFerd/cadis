@@ -4,9 +4,17 @@
  */
 import { useState } from "react";
 import { useHud } from "../hudState.js";
-import { VOICES } from "../../lib/voice/voices.js";
+import {
+  VOICE_PROVIDER_OPTIONS,
+  VOICES,
+  defaultVoiceIdForProvider,
+  voiceOptionForId,
+  type VoiceProvider,
+} from "../../lib/voice/voices.js";
 import { stopSpeaking, testAudio } from "../../lib/voice/tts.js";
 import { persistVoicePreferences } from "../cadisActions.js";
+
+const CUSTOM_VOICE_VALUE = "__custom_voice_id__";
 
 export function VoiceConfig() {
   const open = useHud((s) => s.voiceConfigOpen);
@@ -23,8 +31,29 @@ export function VoiceConfig() {
     update(patch);
     persistVoicePreferences(next);
   };
+  const updateVoiceId = (voiceId: string) => {
+    const selected = voiceOptionForId(voiceId);
+    updateVoice({
+      voiceId,
+      ...(selected ? { provider: selected.provider } : {}),
+    });
+  };
+  const updateProvider = (provider: VoiceProvider) => {
+    const selected = voiceOptionForId(prefs.voiceId);
+    updateVoice({
+      provider,
+      voiceId:
+        selected && selected.provider !== provider
+          ? defaultVoiceIdForProvider(provider)
+          : prefs.voiceId || defaultVoiceIdForProvider(provider),
+    });
+  };
 
   if (!open) return null;
+
+  const currentVoice = voiceOptionForId(prefs.voiceId);
+  const voiceSelectValue = currentVoice?.provider === prefs.provider ? currentVoice.id : CUSTOM_VOICE_VALUE;
+  const providerVoices = VOICES.filter((voice) => voice.provider === prefs.provider);
 
   const test = async () => {
     setError(null);
@@ -68,18 +97,50 @@ export function VoiceConfig() {
         </header>
 
         <section className="voice-config__row">
-          <label className="voice-config__label">Voice</label>
+          <label className="voice-config__label" htmlFor="voice-provider-input">Provider</label>
           <select
+            id="voice-provider-input"
             className="voice-config__select"
-            value={prefs.voiceId}
-            onChange={(e) => updateVoice({ voiceId: e.target.value })}
+            value={prefs.provider}
+            onChange={(e) => updateProvider(e.target.value as VoiceProvider)}
           >
-            {VOICES.map((v) => (
+            {VOICE_PROVIDER_OPTIONS.map((provider) => (
+              <option key={provider.id} value={provider.id}>
+                {provider.label}
+              </option>
+            ))}
+          </select>
+        </section>
+
+        <section className="voice-config__row">
+          <label className="voice-config__label" htmlFor="voice-preset-input">Voice</label>
+          <select
+            id="voice-preset-input"
+            className="voice-config__select"
+            value={voiceSelectValue}
+            onChange={(e) => {
+              if (e.target.value !== CUSTOM_VOICE_VALUE) updateVoiceId(e.target.value);
+            }}
+          >
+            <option value={CUSTOM_VOICE_VALUE}>Custom voice ID</option>
+            {providerVoices.map((v) => (
               <option key={v.id} value={v.id}>
                 {v.label}
               </option>
             ))}
           </select>
+        </section>
+
+        <section className="voice-config__row">
+          <label className="voice-config__label" htmlFor="voice-id-input">Voice ID</label>
+          <input
+            id="voice-id-input"
+            className="voice-config__input"
+            value={prefs.voiceId}
+            placeholder={defaultVoiceIdForProvider(prefs.provider)}
+            spellCheck={false}
+            onChange={(e) => updateVoiceId(e.target.value.trim())}
+          />
         </section>
 
         <SliderRow
@@ -117,6 +178,18 @@ export function VoiceConfig() {
           <label className="voice-config__label">
             <input
               type="checkbox"
+              checked={prefs.enabled}
+              onChange={(e) => updateVoice({ enabled: e.target.checked })}
+            />
+            Enable voice output
+          </label>
+        </section>
+
+        <section className="voice-config__row">
+          <label className="voice-config__label">
+            <input
+              type="checkbox"
+              disabled={!prefs.enabled}
               checked={prefs.autoSpeak}
               onChange={(e) => updateVoice({ autoSpeak: e.target.checked })}
             />
@@ -126,7 +199,9 @@ export function VoiceConfig() {
         <section className="voice-config__row">
           <label className="voice-config__label">
             Engine
-            <span className="voice-config__value">edge-tts-universal</span>
+            <span className="voice-config__value">
+              {prefs.provider === "elevenlabs" ? "elevenlabs" : "edge-tts-universal"}
+            </span>
           </label>
         </section>
 

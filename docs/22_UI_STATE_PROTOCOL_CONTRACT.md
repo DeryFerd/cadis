@@ -218,6 +218,8 @@ Rules:
 
 - daemon persists accepted specialist profile on the agent
 - daemon includes the persona in future prompts routed to that agent
+- daemon applies the built-in Humanizer skill before responses so normal chat
+  stays natural, concise, and in the user's language
 - daemon emits `agent.specialist.changed`
 - UI updates from event
 
@@ -683,9 +685,10 @@ Drive the voice status and doctor rows in the HUD config dialog.
 daemon `ok`, `warn`, and `error` statuses to its existing pass/warn/fail doctor
 presentation.
 
-Daemon-visible TTS provider IDs are `edge`, `openai`, and `system`; `stub` is
-reserved for deterministic tests. Current daemon providers are local stubs that
-validate speech policy and emit lifecycle events without external API calls.
+Daemon-visible TTS provider IDs are `edge`, `elevenlabs`, `openai`, and
+`system`; `stub` is reserved for deterministic tests. `voice_id` is
+provider-specific user configuration, so HUD state must preserve custom IDs and
+route TTS by the selected provider instead of matching one fixed voice ID.
 
 ## 7. RamaClaw Topic Mapping
 

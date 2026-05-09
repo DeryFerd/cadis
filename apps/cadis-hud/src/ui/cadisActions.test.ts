@@ -98,6 +98,34 @@ describe("cadisActions", () => {
     ]);
   });
 
+  it("ignores repeated daemon events with the same event_id", () => {
+    let now = 1_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now++);
+    try {
+      for (let i = 0; i < 3; i += 1) {
+        handleCadisFrameForTest({
+          frame: "event",
+          payload: {
+            event_id: "evt_duplicate_final",
+            session_id: "ses_1",
+            type: "message.completed",
+            payload: {
+              content: "Jawaban final yang sama.",
+              agent_id: "main",
+              agent_name: "WULAN",
+            },
+          },
+        });
+      }
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    expect(useHud.getState().chat).toMatchObject([
+      { who: "cadis", text: "Jawaban final yang sama.", final: true },
+    ]);
+  });
+
   it("normalizes model descriptors from the daemon catalog", () => {
     handleCadisFrameForTest({
       frame: "event",
@@ -139,6 +167,7 @@ describe("cadisActions", () => {
     expect(sendUserMessage("@Builder run tests")).toBe(true);
 
     await vi.waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(1));
+    expect(sentRequest().protocol_version).toBe("0.2");
     expect(sentRequest().type).toBe("message.send");
     expect(sentRequest().payload).toMatchObject({
       content: "@Builder run tests",
@@ -650,6 +679,8 @@ describe("cadisActions", () => {
     invokeMock.mockClear();
 
     persistVoicePreferences({
+      enabled: false,
+      provider: "elevenlabs",
       voiceId: "en-US-AvaNeural",
       rate: 10,
       pitch: -5,
@@ -664,7 +695,8 @@ describe("cadisActions", () => {
       payload: {
         patch: {
           voice: {
-            enabled: true,
+            enabled: false,
+            provider: "elevenlabs",
             voice_id: "en-US-AvaNeural",
             rate: 10,
             pitch: -5,
@@ -677,11 +709,17 @@ describe("cadisActions", () => {
   });
 });
 
-function sentRequest(index = 0): { type: string; payload: Record<string, unknown> } {
+function sentRequest(index = 0): {
+  protocol_version: string;
+  type: string;
+  payload: Record<string, unknown>;
+} {
   const args = invokeMock.mock.calls[index]?.[1] as
-    | { request?: { type?: unknown; payload?: unknown } }
+    | { request?: { protocol_version?: unknown; type?: unknown; payload?: unknown } }
     | undefined;
   return {
+    protocol_version:
+      typeof args?.request?.protocol_version === "string" ? args.request.protocol_version : "",
     type: typeof args?.request?.type === "string" ? args.request.type : "",
     payload:
       args?.request?.payload && typeof args.request.payload === "object"

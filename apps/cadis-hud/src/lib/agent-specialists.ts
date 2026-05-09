@@ -14,6 +14,12 @@ export const SPECIALIST_OPTIONS: AgentSpecialistProfile[] = [
       "Act as a pragmatic generalist. Clarify the task, choose the right approach, and produce actionable results.",
   },
   {
+    id: "humanizer",
+    label: "Humanizer",
+    persona:
+      "Before answering, make the response feel natural and human. Match the user's language, keep the tone warm but direct, avoid robotic catalogues, and preserve technical accuracy.",
+  },
+  {
     id: "engineering",
     label: "Engineering",
     persona:

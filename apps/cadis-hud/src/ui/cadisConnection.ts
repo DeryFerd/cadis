@@ -7,11 +7,12 @@ import {
   _setStreamingBySession,
   _getLastEventId,
   _setLastEventId,
+  _resetProcessedEventIds,
 } from "./cadisProtocolHandlers.js";
 import { pushSystem, asRecord, stringFrom } from "./cadisNormalizers.js";
 
 const CLIENT_ID = "cadis-hud";
-const PROTOCOL_VERSION = "0.1";
+const PROTOCOL_VERSION = "0.2";
 const SOCKET_PATH_STORAGE_KEY = "cadis.socketPath";
 const CADIS_FRAME_EVENT = "cadis-frame";
 const CADIS_SUBSCRIPTION_CLOSED_EVENT = "cadis-subscription-closed";
@@ -232,6 +233,7 @@ export function _resetCadisActionsForTest(): void {
   intentionalDisconnect = false;
   reconnectAttempt = 0;
   _setLastEventId(null);
+  _resetProcessedEventIds();
 }
 
 export function _emitCadisSubscriptionFrameForTest(frame: CadisFrame): void {

@@ -40,9 +40,11 @@ always_on_top = false
 
 [voice]
 enabled = false
-# Supported daemon-visible providers: "edge", "openai", "system".
-# Tests may use the deterministic "stub" provider. The current daemon provider
-# implementations are local stubs and do not call external APIs.
+# Supported daemon-visible providers: "edge", "elevenlabs", "openai", "system".
+# Tests may use the deterministic "stub" provider.
+# For ElevenLabs, set CADIS_ELEVENLABS_API_KEY or
+# ~/.cadis/secrets/elevenlabs_api_key locally; never commit provider secrets.
+# voice_id is provider-specific and can be replaced with any user-owned voice ID.
 # HUD/Tauri remains the local microphone and playback bridge where platform APIs
 # require it.
 provider = "edge"

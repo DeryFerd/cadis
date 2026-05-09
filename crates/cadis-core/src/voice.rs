@@ -100,6 +100,7 @@ impl VoiceRuntimePreferences {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum TtsProviderKind {
     Edge,
+    ElevenLabs,
     OpenAi,
     System,
     Stub,
@@ -125,6 +126,7 @@ impl TtsProvider for StubbedTtsProvider {
     fn id(&self) -> &'static str {
         match self.kind {
             TtsProviderKind::Edge => "edge",
+            TtsProviderKind::ElevenLabs => "elevenlabs",
             TtsProviderKind::OpenAi => "openai",
             TtsProviderKind::System => "system",
             TtsProviderKind::Stub => "stub",
@@ -135,6 +137,7 @@ impl TtsProvider for StubbedTtsProvider {
     fn label(&self) -> &'static str {
         match self.kind {
             TtsProviderKind::Edge => "Edge TTS daemon stub",
+            TtsProviderKind::ElevenLabs => "ElevenLabs TTS daemon stub",
             TtsProviderKind::OpenAi => "OpenAI TTS daemon stub",
             TtsProviderKind::System => "System speech daemon stub",
             TtsProviderKind::Stub => "Deterministic test TTS stub",
@@ -469,17 +472,10 @@ impl TtsProvider for OpenAiTtsProvider {
         let url = format!("{}/audio/speech", self.base_url.trim_end_matches('/'));
 
         let request_body = serde_json::to_string(&body).unwrap_or_default();
-        let output = Command::new("curl")
-            .args(openai_tts_curl_args(
-                &url,
-                &request_body,
-                &audio_path,
-                &self.api_key,
-            ))
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output();
+        let output = run_curl_with_stdin_config(
+            openai_tts_curl_args(&url, &audio_path),
+            openai_tts_curl_config(&self.api_key, &request_body),
+        );
 
         match output {
             Ok(result) if result.status.success() => {
@@ -528,6 +524,159 @@ impl TtsProvider for OpenAiTtsProvider {
             )),
             Err(error) => Err(TtsError::new(
                 "openai_tts_spawn_failed",
+                error.to_string(),
+                true,
+            )),
+        }
+    }
+
+    fn stop(&mut self) -> Result<(), TtsError> {
+        Ok(())
+    }
+}
+
+/// Daemon-owned ElevenLabs TTS provider that calls the ElevenLabs speech API.
+pub(crate) struct ElevenLabsTtsProvider {
+    api_key: String,
+    base_url: String,
+    model_id: String,
+    output_format: String,
+}
+
+const ELEVENLABS_TTS_ERROR_BODY_LIMIT_BYTES: usize = 2 * 1024;
+const ELEVENLABS_TTS_MIN_MP3_BYTES: u64 = 16;
+const ELEVENLABS_DEFAULT_VOICE_ID: &str = "kSzQ9oZF2iytkgNNztpH";
+
+impl ElevenLabsTtsProvider {
+    pub(crate) fn new(api_key: String) -> Self {
+        let base_url = std::env::var("CADIS_ELEVENLABS_BASE_URL")
+            .or_else(|_| std::env::var("ELEVENLABS_BASE_URL"))
+            .unwrap_or_else(|_| "https://api.elevenlabs.io/v1".to_owned());
+        let model_id = std::env::var("CADIS_ELEVENLABS_MODEL")
+            .or_else(|_| std::env::var("ELEVENLABS_MODEL"))
+            .unwrap_or_else(|_| "eleven_multilingual_v2".to_owned());
+        let output_format = std::env::var("CADIS_ELEVENLABS_OUTPUT_FORMAT")
+            .or_else(|_| std::env::var("ELEVENLABS_OUTPUT_FORMAT"))
+            .unwrap_or_else(|_| "mp3_44100_128".to_owned());
+        Self {
+            api_key,
+            base_url,
+            model_id,
+            output_format,
+        }
+    }
+
+    fn voice_id(voice_id: &str) -> Result<&str, TtsError> {
+        let voice_id = voice_id.trim();
+        if voice_id.is_empty()
+            || !voice_id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        {
+            return Err(TtsError::new(
+                "invalid_voice_id",
+                "ElevenLabs voice_id must be non-empty and contain only ASCII alphanumeric, dash, or underscore characters",
+                false,
+            ));
+        }
+        Ok(voice_id)
+    }
+}
+
+impl TtsProvider for ElevenLabsTtsProvider {
+    fn id(&self) -> &'static str {
+        "elevenlabs"
+    }
+
+    fn label(&self) -> &'static str {
+        "ElevenLabs TTS (daemon HTTP)"
+    }
+
+    fn supported_voices(&self) -> Vec<TtsVoice> {
+        curated_tts_voices()
+    }
+
+    fn speak(&mut self, request: TtsRequest<'_>) -> Result<TtsOutput, TtsError> {
+        let voice_id = Self::voice_id(request.voice_id)?;
+        pub(crate) const MAX_ELEVENLABS_TTS_CHARS: usize = 5000;
+        let text = if request.text.chars().count() > MAX_ELEVENLABS_TTS_CHARS {
+            truncate_to_utf8_boundary(request.text, MAX_ELEVENLABS_TTS_CHARS).0
+        } else {
+            request.text
+        };
+
+        let body = serde_json::json!({
+            "text": text,
+            "model_id": self.model_id,
+        });
+        let temp_dir = std::env::temp_dir().join("cadis-elevenlabs-tts");
+        let _ = fs::create_dir_all(&temp_dir);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let audio_path = temp_dir.join(format!(
+            "cadis-tts-elevenlabs-{}-{nanos}.mp3",
+            std::process::id()
+        ));
+        let url = format!(
+            "{}/text-to-speech/{voice_id}?output_format={}",
+            self.base_url.trim_end_matches('/'),
+            self.output_format
+        );
+        let request_body = serde_json::to_string(&body).unwrap_or_default();
+        let output = run_curl_with_stdin_config(
+            elevenlabs_tts_curl_args(&url, &audio_path),
+            elevenlabs_tts_curl_config(&self.api_key, &request_body),
+        );
+
+        match output {
+            Ok(result) if result.status.success() => {
+                let http_status = parse_curl_http_status(&result.stdout);
+                if let Some(status) = http_status.filter(|status| !(200..300).contains(status)) {
+                    let _ = fs::remove_file(&audio_path);
+                    return Err(TtsError::new(
+                        "elevenlabs_tts_failed",
+                        elevenlabs_tts_failure_message(
+                            Some(status),
+                            result.status.code(),
+                            &result.stderr,
+                            &audio_path,
+                            &self.api_key,
+                        ),
+                        true,
+                    ));
+                }
+                if let Err(error) = validate_elevenlabs_tts_audio_file(&audio_path, &self.api_key) {
+                    let _ = fs::remove_file(&audio_path);
+                    return Err(error);
+                }
+                Ok(TtsOutput {
+                    provider: "elevenlabs".to_owned(),
+                    voice_id: voice_id.to_owned(),
+                    spoken_chars: request.text.chars().count(),
+                    audio_path: Some(audio_path),
+                })
+            }
+            Ok(result) => {
+                let http_status = parse_curl_http_status(&result.stdout);
+                let message = elevenlabs_tts_failure_message(
+                    http_status,
+                    result.status.code(),
+                    &result.stderr,
+                    &audio_path,
+                    &self.api_key,
+                );
+                let _ = fs::remove_file(&audio_path);
+                Err(TtsError::new("elevenlabs_tts_failed", message, true))
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Err(TtsError::new(
+                "curl_not_found",
+                "curl is not installed; ElevenLabs TTS requires curl for HTTP requests",
+                false,
+            )),
+            Err(error) => Err(TtsError::new(
+                "elevenlabs_tts_spawn_failed",
                 error.to_string(),
                 true,
             )),
@@ -779,12 +928,7 @@ fn system_tts_available() -> bool {
     system_tts_binary_for_platform(SystemTtsPlatform::current()).is_some()
 }
 
-fn openai_tts_curl_args(
-    url: &str,
-    request_body: &str,
-    audio_path: &Path,
-    api_key: &str,
-) -> Vec<String> {
+fn openai_tts_curl_args(url: &str, audio_path: &Path) -> Vec<String> {
     vec![
         "--silent".to_owned(),
         "--show-error".to_owned(),
@@ -794,15 +938,77 @@ fn openai_tts_curl_args(
         url.to_owned(),
         "--header".to_owned(),
         "Content-Type: application/json".to_owned(),
-        "--header".to_owned(),
-        format!("Authorization: Bearer {api_key}"),
-        "--data".to_owned(),
-        request_body.to_owned(),
+        "--config".to_owned(),
+        "-".to_owned(),
         "--output".to_owned(),
         audio_path.to_string_lossy().into_owned(),
         "--write-out".to_owned(),
         "%{http_code}".to_owned(),
     ]
+}
+
+fn openai_tts_curl_config(api_key: &str, request_body: &str) -> String {
+    format!(
+        "header = \"{}\"\ndata = \"{}\"\n",
+        curl_config_quoted_value(&format!("Authorization: Bearer {api_key}")),
+        curl_config_quoted_value(request_body)
+    )
+}
+
+fn elevenlabs_tts_curl_args(url: &str, audio_path: &Path) -> Vec<String> {
+    vec![
+        "--silent".to_owned(),
+        "--show-error".to_owned(),
+        "--fail-with-body".to_owned(),
+        "--request".to_owned(),
+        "POST".to_owned(),
+        url.to_owned(),
+        "--header".to_owned(),
+        "Content-Type: application/json".to_owned(),
+        "--config".to_owned(),
+        "-".to_owned(),
+        "--output".to_owned(),
+        audio_path.to_string_lossy().into_owned(),
+        "--write-out".to_owned(),
+        "%{http_code}".to_owned(),
+    ]
+}
+
+fn elevenlabs_tts_curl_config(api_key: &str, request_body: &str) -> String {
+    format!(
+        "header = \"{}\"\ndata = \"{}\"\n",
+        curl_config_quoted_value(&format!("xi-api-key: {api_key}")),
+        curl_config_quoted_value(request_body)
+    )
+}
+
+fn run_curl_with_stdin_config(
+    args: Vec<String>,
+    config: String,
+) -> io::Result<std::process::Output> {
+    let mut child = Command::new("curl")
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(config.as_bytes())?;
+    }
+    child.wait_with_output()
+}
+
+fn curl_config_quoted_value(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| match character {
+            '\\' => "\\\\".to_owned(),
+            '"' => "\\\"".to_owned(),
+            '\n' | '\r' => " ".to_owned(),
+            character if character.is_control() => " ".to_owned(),
+            character => character.to_string(),
+        })
+        .collect()
 }
 
 fn parse_curl_http_status(stdout: &[u8]) -> Option<u16> {
@@ -861,11 +1067,136 @@ fn validate_openai_tts_audio_file(audio_path: &Path, api_key: &str) -> Result<u6
     Ok(file_size)
 }
 
+fn validate_elevenlabs_tts_audio_file(audio_path: &Path, api_key: &str) -> Result<u64, TtsError> {
+    let file_size = fs::metadata(audio_path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
+    if file_size == 0 {
+        return Err(TtsError::new(
+            "elevenlabs_tts_empty_response",
+            "ElevenLabs TTS returned an empty audio file",
+            true,
+        ));
+    }
+
+    let mut file = fs::File::open(audio_path).map_err(|error| {
+        TtsError::new(
+            "elevenlabs_tts_audio_read_failed",
+            format!(
+                "ElevenLabs TTS audio file could not be read: {}",
+                redact_elevenlabs_tts_context(&error.to_string(), api_key)
+            ),
+            true,
+        )
+    })?;
+    let mut header = [0_u8; 16];
+    let header_len = file.read(&mut header).map_err(|error| {
+        TtsError::new(
+            "elevenlabs_tts_audio_read_failed",
+            format!(
+                "ElevenLabs TTS audio file could not be read: {}",
+                redact_elevenlabs_tts_context(&error.to_string(), api_key)
+            ),
+            true,
+        )
+    })?;
+
+    if file_size < ELEVENLABS_TTS_MIN_MP3_BYTES || !looks_like_mp3_header(&header[..header_len]) {
+        let mut message =
+            format!("ElevenLabs TTS response was not a plausible MP3 ({file_size} bytes)");
+        if let Some(body) = read_elevenlabs_tts_body_context(audio_path, api_key) {
+            message.push_str(": response body: ");
+            message.push_str(&body);
+        }
+        return Err(TtsError::new(
+            "elevenlabs_tts_invalid_audio",
+            redact_elevenlabs_tts_context(&message, api_key),
+            true,
+        ));
+    }
+
+    Ok(file_size)
+}
+
 fn looks_like_mp3_header(header: &[u8]) -> bool {
     header.starts_with(b"ID3")
         || header
             .get(..2)
             .is_some_and(|bytes| bytes[0] == 0xff && (bytes[1] & 0xe0) == 0xe0)
+}
+
+fn elevenlabs_tts_failure_message(
+    http_status: Option<u16>,
+    exit_code: Option<i32>,
+    stderr: &[u8],
+    body_path: &Path,
+    api_key: &str,
+) -> String {
+    let status = match (http_status, exit_code) {
+        (Some(status), Some(code)) => format!(" (HTTP {status}, curl exit {code})"),
+        (Some(status), None) => format!(" (HTTP {status})"),
+        (None, Some(code)) => format!(" (curl exit {code})"),
+        (None, None) => String::new(),
+    };
+    let context = elevenlabs_tts_error_context(stderr, body_path, api_key)
+        .unwrap_or_else(|| "no response details".to_owned());
+    redact_elevenlabs_tts_context(
+        &format!("ElevenLabs TTS request failed{status}: {context}"),
+        api_key,
+    )
+}
+
+fn elevenlabs_tts_error_context(stderr: &[u8], body_path: &Path, api_key: &str) -> Option<String> {
+    let mut parts = Vec::new();
+    if let Some(stderr) = sanitize_elevenlabs_tts_context(&String::from_utf8_lossy(stderr), api_key)
+    {
+        parts.push(format!("curl stderr: {stderr}"));
+    }
+    if let Some(body) = read_elevenlabs_tts_body_context(body_path, api_key) {
+        parts.push(format!("response body: {body}"));
+    }
+    (!parts.is_empty()).then(|| parts.join("; "))
+}
+
+fn read_elevenlabs_tts_body_context(body_path: &Path, api_key: &str) -> Option<String> {
+    let mut file = fs::File::open(body_path).ok()?;
+    let mut buffer = vec![0_u8; ELEVENLABS_TTS_ERROR_BODY_LIMIT_BYTES + 1];
+    let bytes_read = file.read(&mut buffer).ok()?;
+    if bytes_read == 0 {
+        return None;
+    }
+
+    let truncated = bytes_read > ELEVENLABS_TTS_ERROR_BODY_LIMIT_BYTES;
+    buffer.truncate(bytes_read.min(ELEVENLABS_TTS_ERROR_BODY_LIMIT_BYTES));
+    let mut context = sanitize_elevenlabs_tts_context(&String::from_utf8_lossy(&buffer), api_key)?;
+    if truncated {
+        context.push_str(" ...");
+    }
+    Some(context)
+}
+
+fn sanitize_elevenlabs_tts_context(input: &str, api_key: &str) -> Option<String> {
+    let printable = input
+        .chars()
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect::<String>();
+    let compact = printable.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!compact.is_empty()).then(|| redact_elevenlabs_tts_context(&compact, api_key))
+}
+
+fn redact_elevenlabs_tts_context(input: &str, api_key: &str) -> String {
+    let redacted = redact(input);
+    if api_key.is_empty() {
+        redacted
+    } else {
+        redacted.replace(api_key, "[REDACTED]")
+    }
 }
 
 fn openai_tts_failure_message(
@@ -952,9 +1283,35 @@ fn openai_api_key_from_env() -> Option<String> {
         })
 }
 
+fn elevenlabs_api_key_from_env() -> Option<String> {
+    std::env::var("CADIS_ELEVENLABS_API_KEY")
+        .ok()
+        .filter(|k| !k.is_empty())
+        .or_else(|| {
+            std::env::var("ELEVENLABS_API_KEY")
+                .ok()
+                .filter(|k| !k.is_empty())
+        })
+        .or_else(elevenlabs_api_key_from_secret_file)
+}
+
+fn elevenlabs_api_key_from_secret_file() -> Option<String> {
+    let home = std::env::var_os("HOME").map(PathBuf::from)?;
+    let value = fs::read_to_string(home.join(".cadis/secrets/elevenlabs_api_key")).ok()?;
+    let value = value.trim().to_owned();
+    (!value.is_empty()).then_some(value)
+}
+
 pub(crate) fn tts_provider_from_config(provider: &str) -> Box<dyn TtsProvider> {
     match provider {
         "edge" => Box::new(EdgeTtsProvider),
+        "elevenlabs" => {
+            if let Some(key) = elevenlabs_api_key_from_env() {
+                Box::new(ElevenLabsTtsProvider::new(key))
+            } else {
+                Box::new(StubbedTtsProvider::new(provider))
+            }
+        }
         "openai" => {
             if let Some(key) = openai_api_key_from_env() {
                 Box::new(OpenAiTtsProvider::new(key))
@@ -976,6 +1333,7 @@ pub(crate) fn tts_provider_from_config(provider: &str) -> Box<dyn TtsProvider> {
 pub(crate) fn tts_provider_kind(provider: &str) -> TtsProviderKind {
     match provider {
         "edge" => TtsProviderKind::Edge,
+        "elevenlabs" => TtsProviderKind::ElevenLabs,
         "openai" => TtsProviderKind::OpenAi,
         "system" => TtsProviderKind::System,
         "stub" => TtsProviderKind::Stub,
@@ -985,6 +1343,12 @@ pub(crate) fn tts_provider_kind(provider: &str) -> TtsProviderKind {
 
 pub(crate) fn curated_tts_voices() -> Vec<TtsVoice> {
     vec![
+        TtsVoice {
+            id: ELEVENLABS_DEFAULT_VOICE_ID,
+            label: "ElevenLabs Default",
+            locale: "id-ID",
+            gender: "Neutral",
+        },
         TtsVoice {
             id: "id-ID-ArdiNeural",
             label: "Ardi (Indonesian, Male)",
@@ -1231,7 +1595,10 @@ pub(crate) fn normalize_voice_config_string(value: &str) -> String {
 }
 
 pub(crate) fn is_supported_voice_provider(provider: &str) -> bool {
-    matches!(provider, "edge" | "openai" | "system" | "stub")
+    matches!(
+        provider,
+        "edge" | "elevenlabs" | "openai" | "system" | "stub"
+    )
 }
 
 pub(crate) fn clamp_voice_adjustment(value: i16) -> i16 {
@@ -1365,19 +1732,35 @@ mod tests {
     #[test]
     fn openai_tts_curl_args_fail_on_http_errors_and_write_status() {
         let audio_path = Path::new("/tmp/cadis-openai-test.mp3");
-        let args = openai_tts_curl_args(
-            "https://example.test/v1/audio/speech",
-            r#"{"input":"hello"}"#,
-            audio_path,
-            "literal-test-key",
-        );
+        let args = openai_tts_curl_args("https://example.test/v1/audio/speech", audio_path);
 
         assert!(args.contains(&"--fail-with-body".to_owned()));
         assert!(args.contains(&"--show-error".to_owned()));
         assert!(args.contains(&"--write-out".to_owned()));
         assert!(args.contains(&"%{http_code}".to_owned()));
         assert!(args.contains(&"--output".to_owned()));
+        assert!(args.contains(&"--config".to_owned()));
+        assert!(!args.iter().any(|arg| arg.contains("literal-test-key")));
         assert!(args.contains(&audio_path.to_string_lossy().into_owned()));
+    }
+
+    #[test]
+    fn tts_curl_configs_keep_api_keys_out_of_process_args() {
+        let audio_path = Path::new("/tmp/cadis-elevenlabs-test.mp3");
+        let args =
+            elevenlabs_tts_curl_args("https://example.test/v1/text-to-speech/voice", audio_path);
+
+        assert!(args.contains(&"--config".to_owned()));
+        assert!(!args
+            .iter()
+            .any(|arg| arg.contains("literal-elevenlabs-key")));
+        assert!(!args.iter().any(|arg| arg.contains("hello")));
+        let config = elevenlabs_tts_curl_config("literal-elevenlabs-key", r#"{"text":"hello"}"#);
+        assert!(config.contains("xi-api-key: literal-elevenlabs-key"));
+        assert!(config.contains(r#"data = "{\"text\":\"hello\"}""#));
+
+        let openai_config = openai_tts_curl_config("literal-openai-key", r#"{"input":"hello"}"#);
+        assert!(openai_config.contains("Authorization: Bearer literal-openai-key"));
     }
 
     #[test]

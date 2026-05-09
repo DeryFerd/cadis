@@ -70,7 +70,7 @@ fn send_and_collect(child: &mut std::process::Child, request: &Value) -> Vec<Val
 /// Build a minimal request envelope.
 fn request(req_type: &str, payload: Value) -> Value {
     serde_json::json!({
-        "protocol_version": "0.1",
+        "protocol_version": "0.2",
         "request_id": "req_test_1",
         "client_id": "cli_test",
         "type": req_type,

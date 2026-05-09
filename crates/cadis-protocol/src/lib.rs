@@ -371,7 +371,7 @@ pub struct ErrorPayload {
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
 pub struct EmptyPayload {}
 
-/// Client requests supported by protocol version 0.1.
+/// Client requests supported by the current protocol version.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(tag = "type", content = "payload")]
 pub enum ClientRequest {
@@ -860,7 +860,7 @@ pub struct VoicePreflightRequest {
     pub checks: Vec<VoiceDoctorCheck>,
 }
 
-/// Daemon events emitted by protocol version 0.1.
+/// Daemon events emitted by the current protocol version.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(tag = "type", content = "payload")]
 pub enum CadisEvent {

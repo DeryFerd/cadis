@@ -1,11 +1,9 @@
 /**
- * TTS — Edge TTS runs through the Tauri/Node side because
- * `edge-tts-universal@1.4.x` requires WebSocket headers that Linux WebKit
- * cannot set from renderer JavaScript. Playback also stays native-side so it
- * does not depend on WebKit/GStreamer audio plugins.
+ * TTS preview playback stays native-side so it does not depend on
+ * WebKit/GStreamer audio plugins.
  */
 import { invoke } from "@tauri-apps/api/core";
-import { fmtHz, fmtPercent, type VoicePrefs } from "./voices.js";
+import { fmtHz, fmtPercent, voiceOptionForId, type VoicePrefs } from "./voices.js";
 
 export type SpeakHandlers = {
   onStart?: () => void;
@@ -13,9 +11,10 @@ export type SpeakHandlers = {
   onError?: (err: unknown) => void;
 };
 
-function edgePayload(text: string, prefs: VoicePrefs): Record<string, string> {
+function ttsPayload(text: string, prefs: VoicePrefs): Record<string, string> {
   return {
     text,
+    provider: prefs.provider,
     voiceId: prefs.voiceId,
     rate: fmtPercent(prefs.rate),
     pitch: fmtHz(prefs.pitch),
@@ -41,7 +40,7 @@ export async function stopSpeaking(): Promise<void> {
 async function speakEdge(text: string, prefs: VoicePrefs, handlers: SpeakHandlers): Promise<void> {
   handlers.onStart?.();
   try {
-    await invoke("edge_tts_speak", edgePayload(text, { ...prefs, useCloudTts: true }));
+    await invoke("edge_tts_speak", ttsPayload(text, { ...prefs, useCloudTts: true }));
     handlers.onEnd?.();
   } catch (err) {
     throw stringifyError(err);
@@ -89,12 +88,13 @@ export async function testAudio(
   prefs: VoicePrefs,
   handlers: SpeakHandlers = {},
   agentName = "CADIS",
-): Promise<"edge-tts-universal"> {
+): Promise<"edge-tts-universal" | "elevenlabs"> {
   const name = agentName.trim() || "CADIS";
+  const selected = voiceOptionForId(prefs.voiceId);
   const text =
-    prefs.voiceId.startsWith("id-") || prefs.voiceId.startsWith("ms-")
+    selected?.locale === "id-ID" || selected?.locale === "ms-MY" || prefs.provider === "elevenlabs"
       ? `Halo, saya ${name}. Audio test berhasil.`
       : `Hello, I'm ${name}. Audio test successful.`;
   await speakEdge(text, { ...prefs, useCloudTts: true }, handlers);
-  return "edge-tts-universal";
+  return prefs.provider === "elevenlabs" ? "elevenlabs" : "edge-tts-universal";
 }
