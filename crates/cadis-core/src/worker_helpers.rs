@@ -33,10 +33,16 @@ pub fn worker_lifecycle_event(payload: WorkerEventPayload) -> cadis_protocol::Ca
         _ => None,
     });
     match kind {
-        Some(WorkerLifecycleEventKind::Completed) => cadis_protocol::CadisEvent::WorkerCompleted(payload),
+        Some(WorkerLifecycleEventKind::Completed) => {
+            cadis_protocol::CadisEvent::WorkerCompleted(payload)
+        }
         Some(WorkerLifecycleEventKind::Failed) => cadis_protocol::CadisEvent::WorkerFailed(payload),
-        Some(WorkerLifecycleEventKind::Cancelled) => cadis_protocol::CadisEvent::WorkerCancelled(payload),
-        Some(WorkerLifecycleEventKind::Started) | None => cadis_protocol::CadisEvent::WorkerStarted(payload),
+        Some(WorkerLifecycleEventKind::Cancelled) => {
+            cadis_protocol::CadisEvent::WorkerCancelled(payload)
+        }
+        Some(WorkerLifecycleEventKind::Started) | None => {
+            cadis_protocol::CadisEvent::WorkerStarted(payload)
+        }
     }
 }
 
@@ -98,7 +104,9 @@ pub fn project_worker_worktree_state_for_worker_state(
 }
 
 /// Converts worker artifact paths to protocol artifact locations.
-pub fn worker_artifact_locations(paths: &WorkerArtifactPathSet) -> cadis_protocol::WorkerArtifactLocations {
+pub fn worker_artifact_locations(
+    paths: &WorkerArtifactPathSet,
+) -> cadis_protocol::WorkerArtifactLocations {
     cadis_protocol::WorkerArtifactLocations {
         root: paths.root.display().to_string(),
         patch: paths.patch.display().to_string(),

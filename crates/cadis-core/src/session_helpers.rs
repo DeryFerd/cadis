@@ -1,8 +1,6 @@
 //! Session-related helper functions extracted from lib.rs.
 
-use cadis_protocol::{
-    AgentSessionEventPayload, AgentSessionStatus, CadisEvent,
-};
+use cadis_protocol::{AgentSessionEventPayload, AgentSessionStatus, CadisEvent};
 
 /// Converts an agent session event payload to the appropriate lifecycle event.
 pub fn agent_session_lifecycle_event(payload: AgentSessionEventPayload) -> CadisEvent {
