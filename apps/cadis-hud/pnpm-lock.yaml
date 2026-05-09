@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  uuid: 11.1.1
+
 importers:
 
   .:
@@ -37,8 +40,8 @@ importers:
         version: 5.0.2(@types/react@18.3.12)(react@18.3.1)(use-sync-external-store@1.6.0(react@18.3.1))
     devDependencies:
       '@eslint/js':
-        specifier: 10.0.1
-        version: 10.0.1(eslint@9.15.0)
+        specifier: 9.15.0
+        version: 9.15.0
       '@tauri-apps/cli':
         specifier: 2.1.0
         version: 2.1.0
@@ -527,15 +530,6 @@ packages:
   '@eslint/eslintrc@3.3.5':
     resolution: {integrity: sha512-4IlJx0X0qftVsN5E+/vGujTRIFtwuLbNsVUe7TO6zYPDR1O6nFwvwhIKEKSrl6dZchmYBITazxKoUYOjdtjlRg==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
-
-  '@eslint/js@10.0.1':
-    resolution: {integrity: sha512-zeR9k5pd4gxjZ0abRoIaxdc7I3nDktoXZk2qOv9gCNWx3mVwEn32VRhyLaRsDiJjTs0xq/T8mfPtyuXu7GWBcA==}
-    engines: {node: ^20.19.0 || ^22.13.0 || >=24}
-    peerDependencies:
-      eslint: ^10.0.0
-    peerDependenciesMeta:
-      eslint:
-        optional: true
 
   '@eslint/js@9.15.0':
     resolution: {integrity: sha512-tMTqrY+EzbXmKJR5ToI8lxu7jaN5EdmrBFJpQk5JmSlyLsx6o4t27r883K5xsLuCYCpfKBCGswMSWXsM+jB7lg==}
@@ -2398,8 +2392,8 @@ packages:
     resolution: {integrity: sha512-6Z7Ma2aVEWisaL6TvBCy7P8rm2LQoPv6dJ7ecIaIixHcwfbJ0x7mWdbcwlIM5IGQxPZSFYeqRCqlOOeKoJYMkw==}
     engines: {node: '>= 4'}
 
-  uuid@11.1.0:
-    resolution: {integrity: sha512-0/A9rDy9P7cJ+8w1c9WD9V//9Wj15Ce2MPz8Ri6032usz+NfePxx5AcN3bN+r6ZL6jEo066/yNYB3tn4pQEx+A==}
+  uuid@11.1.1:
+    resolution: {integrity: sha512-vIYxrBCC/N/K+Js3qSN88go7kIfNPssr/hHCesKCQNAjmgvYS2oqr69kIufEG+O4+PfezOH4EbIeHCfFov8ZgQ==}
     hasBin: true
 
   vite-node@2.1.5:
@@ -2965,10 +2959,6 @@ snapshots:
       strip-json-comments: 3.1.1
     transitivePeerDependencies:
       - supports-color
-
-  '@eslint/js@10.0.1(eslint@9.15.0)':
-    optionalDependencies:
-      eslint: 9.15.0
 
   '@eslint/js@9.15.0': {}
 
@@ -3800,7 +3790,7 @@ snapshots:
       cross-fetch: 4.1.0
       https-proxy-agent: 7.0.6
       isomorphic-ws: 5.0.0(ws@8.20.0)
-      uuid: 11.1.0
+      uuid: 11.1.1
       ws: 8.20.0
       xml-escape: 1.1.0
     transitivePeerDependencies:
@@ -5078,7 +5068,7 @@ snapshots:
 
   utility-types@3.11.0: {}
 
-  uuid@11.1.0: {}
+  uuid@11.1.1: {}
 
   vite-node@2.1.5(@types/node@25.6.0):
     dependencies:
