@@ -234,6 +234,4 @@ pub(crate) struct AgentLayout {
 pub(crate) struct DebugEvent {
     pub(crate) timestamp: std::time::Instant,
     pub(crate) label: String,
-    #[allow(dead_code)]
-    pub(crate) detail: String,
 }

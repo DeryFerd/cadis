@@ -304,6 +304,7 @@ impl ToolDefinition {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[allow(dead_code)]
+// Reserved for future Track D work: structured tool execution migration.
 pub(crate) enum ToolInputSchema {
     FileRead,
     FileSearch,
