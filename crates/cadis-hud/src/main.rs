@@ -242,7 +242,6 @@ impl HudApp {
             self.debug_events.push_back(DebugEvent {
                 timestamp: Instant::now(),
                 label,
-                detail: String::new(),
             });
             if self.debug_events.len() > 20 {
                 self.debug_events.pop_front();
