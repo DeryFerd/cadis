@@ -73,7 +73,6 @@ fn dedup_lines(input: &str) -> String {
     out.join("\n")
 }
 
-#[allow(dead_code)]
 fn truncate_output(input: &str, max_lines: usize) -> String {
     let lines: Vec<&str> = input.lines().collect();
     if lines.len() <= max_lines {
