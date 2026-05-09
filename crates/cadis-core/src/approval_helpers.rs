@@ -1,6 +1,6 @@
 //! Approval-related helper functions extracted from lib.rs.
 
-use cadis_protocol::{ApprovalRequestPayload};
+use cadis_protocol::ApprovalRequestPayload;
 use cadis_store::ApprovalRecord;
 use chrono::{DateTime, Utc};
 

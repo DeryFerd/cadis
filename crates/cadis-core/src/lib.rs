@@ -6697,8 +6697,6 @@ fn next_approval_counter(approvals: &HashMap<ApprovalId, ApprovalRecord>) -> u64
         + 1
 }
 
-
-
 fn resolve_project_path(project_root: &Path, path: impl AsRef<Path>) -> PathBuf {
     let path = path.as_ref();
     if path.is_absolute() {
@@ -6778,7 +6776,6 @@ fn timestamp_is_past(timestamp: &Timestamp) -> bool {
         .map(|timestamp| timestamp.with_timezone(&Utc) <= Utc::now())
         .unwrap_or(true)
 }
-
 
 fn input_string(input: &serde_json::Value, key: &str) -> Option<String> {
     input
@@ -7087,7 +7084,6 @@ fn agent_status_label(status: AgentStatus) -> &'static str {
     }
 }
 
-
 fn planned_worker_worktree(
     worker_id: &str,
     workspace: Option<&str>,
@@ -7121,7 +7117,6 @@ fn planned_worker_worktree(
         cleanup_policy: WorkerWorktreeCleanupPolicy::Explicit,
     }
 }
-
 
 fn prepare_worker_execution(record: &mut WorkerRecord) -> Vec<String> {
     let mut logs = Vec::new();
@@ -7949,7 +7944,6 @@ fn worker_command_report(
     }
 }
 
-
 fn bounded_worker_command_log(label: &str, content: &str, source_truncated: bool) -> String {
     let header = format!("command {label}:\n");
     let marker = format!("\n[{label} truncated]\n");
@@ -7990,7 +7984,6 @@ fn truncate_to_utf8_boundary(content: &str, limit: usize) -> (&str, bool) {
     }
     (&content[..end], true)
 }
-
 
 fn write_worker_artifacts(
     record: &mut WorkerRecord,
@@ -8270,7 +8263,6 @@ fn branch_slug(value: &str) -> String {
         slug.chars().take(32).collect()
     }
 }
-
 
 fn json_usize(value: &serde_json::Value, key: &str) -> Option<usize> {
     value
