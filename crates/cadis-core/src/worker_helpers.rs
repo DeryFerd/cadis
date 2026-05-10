@@ -134,18 +134,36 @@ pub fn worker_command_report_json(report: &WorkerCommandReport) -> serde_json::V
         "stdout": report.stdout,
         "stderr": report.stderr,
         "timed_out": report.timed_out,
-        "duration_ms": report.duration_ms,
+        "timeout_ms": report.timeout_ms,
     })
 }
 
 /// Extracts command failure details from a worker command report.
 pub fn worker_command_failure(report: &WorkerCommandReport) -> WorkerCommandFailure {
+    if report.timed_out {
+        return WorkerCommandFailure {
+            code: "worker_command_timeout".to_owned(),
+            message: format!(
+                "worker command timed out after timeout_ms={}: {}",
+                report.timeout_ms, report.command
+            ),
+        };
+    }
+
+    let detail = if !report.stderr.trim().is_empty() {
+        report.stderr.trim()
+    } else if !report.stdout.trim().is_empty() {
+        report.stdout.trim()
+    } else {
+        "command exited without output"
+    };
     WorkerCommandFailure {
-        command: report.command.clone(),
-        exit_code: report.exit_code,
-        stdout: report.stdout.clone(),
-        stderr: report.stderr.clone(),
-        timed_out: report.timed_out,
+        code: "worker_command_failed".to_owned(),
+        message: format!(
+            "worker command exited with code {:?}: {}",
+            report.exit_code,
+            truncate_redacted_text(detail, WORKER_COMMAND_SUMMARY_LIMIT_BYTES)
+        ),
     }
 }
 
@@ -165,7 +183,10 @@ pub fn worker_command_logs(report: &WorkerCommandReport) -> Vec<String> {
 pub fn worker_command_summary_markdown(report: &WorkerCommandReport) -> String {
     let mut summary = String::new();
     summary.push_str(&format!("**Command**: `{}`\n\n", report.command));
-    summary.push_str(&format!("**Exit Code**: {}\n\n", report.exit_code));
+    summary.push_str(&format!(
+        "**Exit Code**: {}\n\n",
+        report.exit_code.map(|c| c.to_string()).unwrap_or_else(|| "None".to_string())
+    ));
     if report.timed_out {
         summary.push_str("**Status**: Timed out\n\n");
     }
