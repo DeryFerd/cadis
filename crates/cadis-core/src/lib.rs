@@ -83,6 +83,7 @@ const WORKER_TAIL_DEFAULT_LINES: usize = 64;
 const WORKER_TAIL_MAX_LINES: usize = 1_000;
 const WORKER_DEFAULT_COMMAND: &str = "git status --short";
 const WORKER_COMMAND_TIMEOUT_MS: u64 = 5_000;
+#[allow(dead_code)]
 const WORKER_COMMAND_LOG_LIMIT_BYTES: usize = 4 * 1024;
 const WORKER_COMMAND_SUMMARY_LIMIT_BYTES: usize = 512;
 const AGENT_PERSONA_MAX_CHARS: usize = 1_200;
@@ -7944,6 +7945,7 @@ fn worker_command_report(
     }
 }
 
+#[allow(dead_code)]
 fn bounded_worker_command_log(label: &str, content: &str, source_truncated: bool) -> String {
     let header = format!("command {label}:\n");
     let marker = format!("\n[{label} truncated]\n");

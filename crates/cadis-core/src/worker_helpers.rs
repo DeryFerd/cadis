@@ -10,7 +10,7 @@ use cadis_protocol::{
 use cadis_store::{ProjectWorkerWorktreeState, WorkerArtifactPathSet};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum WorkerLifecycleEventKind {
+pub enum WorkerLifecycleEventKind {
     Started,
     Completed,
     Failed,
