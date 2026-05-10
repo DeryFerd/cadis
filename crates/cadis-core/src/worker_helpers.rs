@@ -185,7 +185,10 @@ pub fn worker_command_summary_markdown(report: &WorkerCommandReport) -> String {
     summary.push_str(&format!("**Command**: `{}`\n\n", report.command));
     summary.push_str(&format!(
         "**Exit Code**: {}\n\n",
-        report.exit_code.map(|c| c.to_string()).unwrap_or_else(|| "None".to_string())
+        report
+            .exit_code
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "None".to_string())
     ));
     if report.timed_out {
         summary.push_str("**Status**: Timed out\n\n");
