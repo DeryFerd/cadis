@@ -1,8 +1,6 @@
 //! Worker-related helper functions extracted from lib.rs.
 
-use crate::{
-    WorkerCommandFailure, WorkerCommandReport, WorkerRecord, WorkerWorktreeIntent,
-};
+use crate::{WorkerCommandFailure, WorkerCommandReport, WorkerRecord, WorkerWorktreeIntent};
 use cadis_protocol::{
     WorkerEventPayload, WorkerState, WorkerWorktreeCleanupPolicy, WorkerWorktreeState,
 };
