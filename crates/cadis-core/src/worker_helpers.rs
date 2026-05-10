@@ -1,10 +1,69 @@
 //! Worker-related helper functions extracted from lib.rs.
 
 use cadis_protocol::{
-    WorkerCommandFailure, WorkerCommandReport, WorkerEventPayload, WorkerLifecycleEventKind,
-    WorkerState, WorkerWorktreeCleanupPolicy, WorkerWorktreeState,
+    WorkerEventPayload, WorkerState, WorkerWorktreeCleanupPolicy, WorkerWorktreeState,
 };
-use cadis_store::{ProjectWorkerWorktreeState, WorkerArtifactPathSet, WorkerRecord};
+use cadis_store::{ProjectWorkerWorktreeState, WorkerArtifactPathSet};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WorkerLifecycleEventKind {
+    Started,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct WorkerCommandFailure {
+    code: String,
+    message: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct WorkerCommandReport {
+    command: String,
+    cwd: String,
+    status: String,
+    exit_code: Option<i32>,
+    timed_out: bool,
+    stdout: String,
+    stderr: String,
+    stdout_truncated: bool,
+    stderr_truncated: bool,
+    timeout_ms: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct WorkerRecord {
+    worker_id: String,
+    session_id: String,
+    agent_id: Option<String>,
+    parent_agent_id: Option<String>,
+    agent_session_id: Option<String>,
+    status: WorkerState,
+    cli: Option<String>,
+    cwd: Option<String>,
+    summary: Option<String>,
+    error_code: Option<String>,
+    error: Option<String>,
+    cancellation_requested_at: Option<String>,
+    worktree: Option<WorkerWorktreeIntent>,
+    artifacts: Option<cadis_protocol::WorkerArtifactLocations>,
+    updated_at: String,
+    log_lines: Vec<String>,
+    command_report: Option<WorkerCommandReport>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct WorkerWorktreeIntent {
+    project_root: Option<String>,
+    worktree_root: String,
+    worktree_path: String,
+    branch_name: String,
+    base_ref: Option<String>,
+    state: WorkerWorktreeState,
+    cleanup_policy: WorkerWorktreeCleanupPolicy,
+}
 
 /// Returns true if the worker state is terminal.
 pub fn worker_status_is_terminal(status: WorkerState) -> bool {
