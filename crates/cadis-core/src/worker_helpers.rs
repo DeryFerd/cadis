@@ -1,6 +1,9 @@
 //! Worker-related helper functions extracted from lib.rs.
 
-use crate::{truncate_redacted_text, WorkerCommandFailure, WorkerCommandReport, WorkerRecord, WORKER_COMMAND_SUMMARY_LIMIT_BYTES};
+use crate::{
+    truncate_redacted_text, WorkerCommandFailure, WorkerCommandReport, WorkerRecord,
+    WORKER_COMMAND_SUMMARY_LIMIT_BYTES,
+};
 use cadis_protocol::{
     WorkerEventPayload, WorkerState, WorkerWorktreeCleanupPolicy, WorkerWorktreeState,
 };
