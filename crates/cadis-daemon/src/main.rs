@@ -2048,6 +2048,8 @@ fn set_private_permissions(path: &Path) -> Result<(), Box<dyn Error>> {
 
 #[cfg(not(unix))]
 #[allow(dead_code)]
+// Platform-specific stub: Windows/macOS don't support Unix permission bits.
+// This function is a no-op on non-Unix platforms to allow cross-platform compilation.
 fn set_private_permissions(_path: &Path) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
