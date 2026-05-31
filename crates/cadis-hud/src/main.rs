@@ -220,7 +220,7 @@ impl HudApp {
         match frame {
             ServerFrame::Response(response) => match response.response {
                 DaemonResponse::DaemonStatus(status) => {
-                    self.daemon_status = Some(status);
+                    self.daemon_status = Some(*status);
                 }
                 DaemonResponse::RequestRejected(error) => {
                     self.messages
@@ -231,7 +231,7 @@ impl HudApp {
                     // Not yet implemented in legacy HUD
                 }
             },
-            ServerFrame::Event(event) => self.apply_event(event),
+            ServerFrame::Event(event) => self.apply_event(*event),
         }
     }
 

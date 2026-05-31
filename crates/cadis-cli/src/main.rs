@@ -1142,7 +1142,7 @@ fn daemon_status(frames: &[ServerFrame]) -> Option<&cadis_protocol::DaemonStatus
             return None;
         };
         match &response.response {
-            DaemonResponse::DaemonStatus(status) => Some(status),
+            DaemonResponse::DaemonStatus(status) => Some(status.as_ref()),
             _ => None,
         }
     })

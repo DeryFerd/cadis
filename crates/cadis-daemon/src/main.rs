@@ -480,19 +480,19 @@ where
                 write_frame(&mut writer, &response)?;
                 if let Some(subscription) = subscription {
                     for event in events {
-                        write_frame(&mut writer, &ServerFrame::Event(event))?;
+                        write_frame(&mut writer, &ServerFrame::Event(Box::new(event)))?;
                     }
                     let (replay, receiver) = event_bus.subscribe(subscription);
                     for event in replay {
-                        write_frame(&mut writer, &ServerFrame::Event(event))?;
+                        write_frame(&mut writer, &ServerFrame::Event(Box::new(event)))?;
                     }
                     for event in receiver {
-                        write_frame(&mut writer, &ServerFrame::Event(event))?;
+                        write_frame(&mut writer, &ServerFrame::Event(Box::new(event)))?;
                     }
                     return Ok(());
                 } else if snapshot_only {
                     for event in events {
-                        write_frame(&mut writer, &ServerFrame::Event(event))?;
+                        write_frame(&mut writer, &ServerFrame::Event(Box::new(event)))?;
                     }
                 } else {
                     for event in events {
@@ -556,19 +556,23 @@ where
                 write_frame_async(&mut writer, &response).await?;
                 if let Some(subscription) = subscription {
                     for event in events {
-                        write_frame_async(&mut writer, &ServerFrame::Event(event)).await?;
+                        write_frame_async(&mut writer, &ServerFrame::Event(Box::new(event)))
+                            .await?;
                     }
                     let (replay, receiver) = event_bus.subscribe(subscription);
                     for event in replay {
-                        write_frame_async(&mut writer, &ServerFrame::Event(event)).await?;
+                        write_frame_async(&mut writer, &ServerFrame::Event(Box::new(event)))
+                            .await?;
                     }
                     for event in receiver {
-                        write_frame_async(&mut writer, &ServerFrame::Event(event)).await?;
+                        write_frame_async(&mut writer, &ServerFrame::Event(Box::new(event)))
+                            .await?;
                     }
                     return Ok(());
                 } else if snapshot_only {
                     for event in events {
-                        write_frame_async(&mut writer, &ServerFrame::Event(event)).await?;
+                        write_frame_async(&mut writer, &ServerFrame::Event(Box::new(event)))
+                            .await?;
                     }
                 } else {
                     for event in events {
@@ -812,7 +816,7 @@ async fn emit_event_async<W: tokio::io::AsyncWrite + Unpin>(
     event: EventEnvelope,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     publish_event(event_log, event_bus, &event);
-    write_frame_async(writer, &ServerFrame::Event(event)).await
+    write_frame_async(writer, &ServerFrame::Event(Box::new(event))).await
 }
 
 async fn write_frame_async<W: tokio::io::AsyncWrite + Unpin>(
@@ -999,7 +1003,7 @@ fn emit_event<W: Write>(
     event: EventEnvelope,
 ) -> Result<(), Box<dyn Error>> {
     publish_event(event_log, event_bus, &event);
-    write_frame(writer, &ServerFrame::Event(event))
+    write_frame(writer, &ServerFrame::Event(Box::new(event)))
 }
 
 fn publish_event(event_log: &EventLog, event_bus: &EventBus, event: &EventEnvelope) {
@@ -1437,10 +1441,10 @@ mod tests {
             })
         ));
         let session_id = match control.read_frame() {
-            ServerFrame::Event(EventEnvelope {
-                event: CadisEvent::SessionStarted(payload),
-                ..
-            }) => payload.session_id,
+            ServerFrame::Event(event) => match event.event {
+                CadisEvent::SessionStarted(payload) => payload.session_id,
+                other => panic!("expected session.started event, got {other:?}"),
+            },
             other => panic!("expected session.started event, got {other:?}"),
         };
 
@@ -1807,7 +1811,7 @@ mod tests {
                 let frame = self.read_frame();
                 if let ServerFrame::Event(event) = frame {
                     if predicate(&event) {
-                        return event;
+                        return *event;
                     }
                 }
                 assert!(
