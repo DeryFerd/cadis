@@ -21,6 +21,7 @@ use tokio::net::TcpListener as TokioTcpListener;
 #[cfg(unix)]
 use tokio::net::UnixListener as TokioUnixListener;
 use tokio::sync::mpsc as tokio_mpsc;
+use tokio::sync::Semaphore;
 
 use cadis_core::{parse_tool_call_directives, PendingMessageGeneration, Runtime, RuntimeOptions};
 use cadis_models::{
@@ -37,6 +38,7 @@ use cadis_store::{
 };
 
 const EVENT_REPLAY_LIMIT: usize = 256;
+const MAX_CONNECTIONS: usize = 64;
 
 fn main() {
     // Handle --stdio outside the tokio runtime so that blocking model providers
