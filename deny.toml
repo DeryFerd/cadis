@@ -27,5 +27,5 @@ license-files = []
 [advisories]
 unmaintained = "none"
 ignore = [
-    { id = "RUSTSEC-2024-0436", reason = "paste is a transitive dep through egui/accesskit; awaiting upstream migration" },
+    { id = "RUSTSEC-2024-0436", reason = "paste is a transitive dep through egui/accesskit; awaiting upstream migration (review-by: 2026-09-27; low direct risk — paste only used in accesskit/egui build macros)" },
 ]
