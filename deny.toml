@@ -27,6 +27,5 @@ license-files = []
 [advisories]
 unmaintained = "none"
 ignore = [
-    { id = "RUSTSEC-2024-0436", reason = "paste is a transitive dep through egui/accesskit; awaiting upstream migration (review-by: 2026-09-27; low direct risk — paste only used in accesskit/egui build macros)" },
-    { id = "RUSTSEC-2026-0185", reason = "quinn-proto is a transitive dep through reqwest/quinn; awaiting upstream release" },
+    { id = "RUSTSEC-2024-0436", reason = "paste is a transitive dep through egui/accesskit; awaiting upstream migration" },
 ]
