@@ -28,5 +28,4 @@ license-files = []
 unmaintained = "none"
 ignore = [
     { id = "RUSTSEC-2024-0436", reason = "paste is a transitive dep through egui/accesskit; awaiting upstream migration" },
-    { id = "RUSTSEC-2026-0185", reason = "quinn-proto is a transitive dep through reqwest/quinn; awaiting upstream release" },
 ]
