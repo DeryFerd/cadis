@@ -133,6 +133,8 @@ async fn run() -> Result<(), Box<dyn Error>> {
     let event_log = EventLog::new(&config);
     let event_bus = EventBus::new(EVENT_REPLAY_LIMIT);
 
+    let max_connections = args.max_connections.unwrap_or(MAX_CONNECTIONS);
+
     if use_tcp {
         let addr = config.effective_tcp_address();
         let addr = tcp_port.map(|p| format!("127.0.0.1:{p}")).unwrap_or(addr);
@@ -142,6 +144,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
             event_log,
             event_bus,
             config.tcp_auth_token.clone(),
+            max_connections,
         )
         .await;
     }
@@ -150,7 +153,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
     {
         let socket_path = socket_path
             .ok_or_else(|| invalid_input("socket path required (use --tcp-port on Windows)"))?;
-        run_socket(socket_path, runtime, event_log, event_bus).await
+        run_socket(socket_path, runtime, event_log, event_bus, max_connections).await
     }
 
     #[cfg(not(unix))]
@@ -164,6 +167,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
             event_log,
             event_bus,
             config.tcp_auth_token.clone(),
+            max_connections,
         )
         .await
     }
@@ -201,12 +205,14 @@ async fn run_tcp(
     event_log: EventLog,
     event_bus: EventBus,
     tcp_auth_token: Option<String>,
+    max_connections: usize,
 ) -> Result<(), Box<dyn Error>> {
     let listener = TokioTcpListener::bind(addr).await?;
     eprintln!("cadisd listening on tcp://{addr}");
 
     let shutdown = Arc::new(AtomicBool::new(false));
     let tcp_auth_token = tcp_auth_token.map(Arc::new);
+    let connection_permits = Arc::new(Semaphore::new(max_connections));
 
     loop {
         if shutdown.load(Ordering::SeqCst) {
@@ -215,27 +221,37 @@ async fn run_tcp(
         tokio::select! {
             result = listener.accept() => {
                 match result {
-                    Ok((stream, _)) => {
+                    Ok((stream, peer_addr)) => {
+                        let permit = Arc::clone(&connection_permits).try_acquire_owned();
                         let runtime = Arc::clone(&runtime);
                         let event_log = event_log.clone();
                         let event_bus = event_bus.clone();
                         let shutdown = Arc::clone(&shutdown);
                         let tcp_auth_token = tcp_auth_token.clone();
-                        tokio::spawn(async move {
-                            let (reader, writer) = stream.into_split();
-                            let mut reader = tokio::io::BufReader::new(reader);
-                            if let Some(ref expected) = tcp_auth_token {
-                                if let Err(error) = verify_tcp_auth(&mut reader, expected).await {
-                                    eprintln!("cadisd auth rejected: {error}");
-                                    return;
-                                }
+                        match permit {
+                            Ok(permit) => {
+                                tokio::spawn(async move {
+                                    let _permit = permit;
+                                    let (reader, writer) = stream.into_split();
+                                    let mut reader = tokio::io::BufReader::new(reader);
+                                    if let Some(ref expected) = tcp_auth_token {
+                                        if let Err(error) = verify_tcp_auth(&mut reader, expected).await {
+                                            eprintln!("cadisd auth rejected: {error}");
+                                            return;
+                                        }
+                                    }
+                                    if let Err(error) = serve_connection(
+                                        reader, writer, runtime, event_log, event_bus, shutdown,
+                                    ).await {
+                                        eprintln!("cadisd client error: {error}");
+                                    }
+                                });
                             }
-                            if let Err(error) = serve_connection(
-                                reader, writer, runtime, event_log, event_bus, shutdown,
-                            ).await {
-                                eprintln!("cadisd client error: {error}");
+                            Err(_) => {
+                                eprintln!("cadisd connection limit reached, rejecting {peer_addr}");
+                                drop(stream);
                             }
-                        });
+                        }
                     }
                     Err(error) => {
                         eprintln!("cadisd accept error: {error}");
@@ -270,12 +286,14 @@ async fn run_socket(
     runtime: Arc<Mutex<Runtime>>,
     event_log: EventLog,
     event_bus: EventBus,
+    max_connections: usize,
 ) -> Result<(), Box<dyn Error>> {
     prepare_socket_path(&socket_path)?;
     let listener = TokioUnixListener::bind(&socket_path)?;
     eprintln!("cadisd listening on {}", socket_path.display());
 
     let shutdown = Arc::new(AtomicBool::new(false));
+    let connection_permits = Arc::new(Semaphore::new(max_connections));
 
     loop {
         if shutdown.load(Ordering::SeqCst) {
@@ -285,19 +303,29 @@ async fn run_socket(
             result = listener.accept() => {
                 match result {
                     Ok((stream, _)) => {
+                        let permit = Arc::clone(&connection_permits).try_acquire_owned();
                         let runtime = Arc::clone(&runtime);
                         let event_log = event_log.clone();
                         let event_bus = event_bus.clone();
                         let shutdown = Arc::clone(&shutdown);
-                        tokio::spawn(async move {
-                            let (reader, writer) = stream.into_split();
-                            let reader = tokio::io::BufReader::new(reader);
-                            if let Err(error) = serve_connection(
-                                reader, writer, runtime, event_log, event_bus, shutdown,
-                            ).await {
-                                eprintln!("cadisd client error: {error}");
+                        match permit {
+                            Ok(permit) => {
+                                tokio::spawn(async move {
+                                    let _permit = permit;
+                                    let (reader, writer) = stream.into_split();
+                                    let reader = tokio::io::BufReader::new(reader);
+                                    if let Err(error) = serve_connection(
+                                        reader, writer, runtime, event_log, event_bus, shutdown,
+                                    ).await {
+                                        eprintln!("cadisd client error: {error}");
+                                    }
+                                });
                             }
-                        });
+                            Err(_) => {
+                                eprintln!("cadisd connection limit reached, rejecting connection");
+                                drop(stream);
+                            }
+                        }
                     }
                     Err(error) => {
                         eprintln!("cadisd accept error: {error}");
@@ -2103,6 +2131,7 @@ struct Args {
     dev_echo: bool,
     socket_path: Option<PathBuf>,
     tcp_port: Option<u16>,
+    max_connections: Option<usize>,
     model_provider: Option<String>,
     ollama_model: Option<String>,
     ollama_endpoint: Option<String>,
@@ -2134,6 +2163,14 @@ impl Args {
                         .ok_or_else(|| invalid_input("--tcp-port requires a port number"))?;
                     parsed.tcp_port = Some(value.parse::<u16>().map_err(|e| {
                         invalid_input(format!("--tcp-port requires a valid port number: {e}"))
+                    })?);
+                }
+                "--max-connections" => {
+                    let value = args
+                        .next()
+                        .ok_or_else(|| invalid_input("--max-connections requires a number"))?;
+                    parsed.max_connections = Some(value.parse::<usize>().map_err(|e| {
+                        invalid_input(format!("--max-connections requires a valid number: {e}"))
                     })?);
                 }
                 "--model-provider" => {
@@ -2172,7 +2209,8 @@ fn invalid_input(message: impl Into<String>) -> io::Error {
 
 fn print_help() {
     println!(
-        "cadisd {}\n\nUSAGE:\n  cadisd [OPTIONS]\n\nOPTIONS:\n  --check                    Validate config and local state layout\n  --version, -V              Print version\n  --stdio                    Serve NDJSON protocol on stdin/stdout\n  --socket <PATH>            Unix socket path\n  --tcp-port <PORT>          Listen on TCP 127.0.0.1:<PORT> instead of Unix socket\n  --model-provider <NAME>    auto, codex-cli, openai, ollama, or echo\n  --ollama-model <NAME>      Ollama model name\n  --ollama-endpoint <URL>    Ollama endpoint\n  --dev-echo                 Force credential-free local fallback\n  --help, -h                 Print help",
+        "cadisd {}\n\nUSAGE:\n  cadisd [OPTIONS]\n\nOPTIONS:\n  --check                    Validate config and local state layout\n  --version, -V              Print version\n  --stdio                    Serve NDJSON protocol on stdin/stdout\n  --socket <PATH>            Unix socket path\n  --tcp-port <PORT>          Listen on TCP 127.0.0.1:<PORT> instead of Unix socket
+  --max-connections <NUM>    Maximum concurrent connections (default: 64)\n  --model-provider <NAME>    auto, codex-cli, openai, ollama, or echo\n  --ollama-model <NAME>      Ollama model name\n  --ollama-endpoint <URL>    Ollama endpoint\n  --dev-echo                 Force credential-free local fallback\n  --help, -h                 Print help",
         env!("CARGO_PKG_VERSION")
     );
 }
