@@ -973,6 +973,9 @@ pub enum CadisEvent {
     /// Tool failed.
     #[serde(rename = "tool.failed")]
     ToolFailed(ToolFailedPayload),
+    /// Tool was cancelled.
+    #[serde(rename = "tool.cancelled")]
+    ToolCancelled(ToolEventPayload),
     /// Approval is required.
     #[serde(rename = "approval.requested")]
     ApprovalRequested(ApprovalRequestPayload),
@@ -2814,6 +2817,43 @@ mod tests {
                     "persona": "Act as a senior growth marketer."
                 }
             })
+        );
+    }
+
+    #[test]
+    fn tool_cancelled_event_matches_documented_shape() {
+        let envelope = EventEnvelope::new(
+            EventId::from("evt_1"),
+            Timestamp::new_utc("2026-04-26T12:00:00Z").expect("timestamp should be UTC"),
+            "cadisd",
+            Some(SessionId::from("ses_1")),
+            CadisEvent::ToolCancelled(ToolEventPayload {
+                session_id: SessionId::from("ses_1"),
+                agent_id: Some(AgentId::from("codex")),
+                tool_call_id: ToolCallId::from("tool_001"),
+                tool_name: "shell.run".to_owned(),
+                risk_class: RiskClass::SystemChange,
+                cwd: Some("/home/user/project".to_owned()),
+                workspace_id: Some(WorkspaceId::from("example-project")),
+                started_at: Some(Timestamp::new_utc("2026-04-26T11:59:00Z").expect("timestamp should be UTC")),
+                completed_at: Some(Timestamp::new_utc("2026-04-26T12:00:00Z").expect("timestamp should be UTC")),
+                content: None,
+            }),
+        );
+
+        let value = serde_json::to_value(&envelope).expect("event should serialize");
+
+        assert_eq!(
+            value["type"], "tool.cancelled",
+            "event type should be tool.cancelled"
+        );
+        assert_eq!(
+            value["payload"]["tool_name"], "shell.run",
+            "payload should contain tool_name"
+        );
+        assert_eq!(
+            value["payload"]["session_id"], "ses_1",
+            "payload should contain session_id"
         );
     }
 }
