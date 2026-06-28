@@ -127,6 +127,19 @@ fn default_shell_env_allowlist() -> Vec<String> {
     .collect()
 }
 
+/// Check if an environment variable name is likely a secret.
+fn is_secret_env_var(name: &str) -> bool {
+    let name_upper = name.to_uppercase();
+    name_upper.contains("SECRET")
+        || name_upper.contains("PASSWORD")
+        || name_upper.contains("API_KEY")
+        || name_upper.contains("TOKEN")
+        || name_upper.contains("PRIVATE_KEY")
+        || name_upper.contains("AWS_SECRET")
+        || name_upper.contains("GITHUB_TOKEN")
+        || name_upper.contains("OPENAI_API_KEY")
+}
+
 // ── Cancellation token (Track D item 4) ──────────────────────────────
 
 /// Typed cancellation token for cooperative tool cancellation.
