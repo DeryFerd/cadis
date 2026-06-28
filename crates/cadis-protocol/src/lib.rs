@@ -2835,8 +2835,12 @@ mod tests {
                 risk_class: RiskClass::SystemChange,
                 cwd: Some("/home/user/project".to_owned()),
                 workspace_id: Some(WorkspaceId::from("example-project")),
-                started_at: Some(Timestamp::new_utc("2026-04-26T11:59:00Z").expect("timestamp should be UTC")),
-                completed_at: Some(Timestamp::new_utc("2026-04-26T12:00:00Z").expect("timestamp should be UTC")),
+                started_at: Some(
+                    Timestamp::new_utc("2026-04-26T11:59:00Z").expect("timestamp should be UTC"),
+                ),
+                completed_at: Some(
+                    Timestamp::new_utc("2026-04-26T12:00:00Z").expect("timestamp should be UTC"),
+                ),
                 content: None,
             }),
         );
