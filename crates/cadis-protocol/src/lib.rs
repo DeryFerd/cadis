@@ -2828,20 +2828,11 @@ mod tests {
             "cadisd",
             Some(SessionId::from("ses_1")),
             CadisEvent::ToolCancelled(ToolEventPayload {
-                session_id: SessionId::from("ses_1"),
-                agent_id: Some(AgentId::from("codex")),
                 tool_call_id: ToolCallId::from("tool_001"),
                 tool_name: "shell.run".to_owned(),
-                risk_class: RiskClass::SystemChange,
-                cwd: Some("/home/user/project".to_owned()),
-                workspace_id: Some(WorkspaceId::from("example-project")),
-                started_at: Some(
-                    Timestamp::new_utc("2026-04-26T11:59:00Z").expect("timestamp should be UTC"),
-                ),
-                completed_at: Some(
-                    Timestamp::new_utc("2026-04-26T12:00:00Z").expect("timestamp should be UTC"),
-                ),
-                content: None,
+                summary: Some("Tool execution was cancelled".to_owned()),
+                risk_class: Some(RiskClass::SystemChange),
+                output: None,
             }),
         );
 
@@ -2856,8 +2847,8 @@ mod tests {
             "payload should contain tool_name"
         );
         assert_eq!(
-            value["payload"]["session_id"], "ses_1",
-            "payload should contain session_id"
+            value["payload"]["tool_call_id"], "tool_001",
+            "payload should contain tool_call_id"
         );
     }
 }
