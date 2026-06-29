@@ -1899,7 +1899,7 @@ pub fn load_config() -> Result<CadisConfig, StoreError> {
         } else {
             file_config.cadis_home = expand_home(&file_config.cadis_home);
         }
-        
+
         // Validate tcp_auth_token from config file
         if let Some(token) = &file_config.tcp_auth_token {
             match validate_tcp_auth_token(token) {
@@ -1912,7 +1912,7 @@ pub fn load_config() -> Result<CadisConfig, StoreError> {
                 }
             }
         }
-        
+
         config = file_config;
     }
 
@@ -1953,24 +1953,33 @@ pub fn load_config() -> Result<CadisConfig, StoreError> {
 /// - Allowed characters: alphanumeric, hyphen, underscore, dot
 fn validate_tcp_auth_token(token: &str) -> Result<String, String> {
     let trimmed = token.trim();
-    
+
     if trimmed.is_empty() {
         return Err("token is empty".to_owned());
     }
-    
+
     if trimmed.len() < 16 {
-        return Err(format!("token too short (minimum 16 characters, got {})", trimmed.len()));
+        return Err(format!(
+            "token too short (minimum 16 characters, got {})",
+            trimmed.len()
+        ));
     }
-    
+
     if trimmed.len() > 256 {
-        return Err(format!("token too long (maximum 256 characters, got {})", trimmed.len()));
+        return Err(format!(
+            "token too long (maximum 256 characters, got {})",
+            trimmed.len()
+        ));
     }
-    
+
     // Allow alphanumeric + hyphen + underscore + dot
-    if !trimmed.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.') {
+    if !trimmed
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+    {
         return Err("token contains invalid characters (only alphanumeric, hyphen, underscore, and dot allowed)".to_owned());
     }
-    
+
     Ok(trimmed.to_owned())
 }
 
@@ -4011,11 +4020,6 @@ mod tests {
         let ids = manager.list().expect("list should succeed");
         assert!(ids.contains(&"cp_1".to_owned()));
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
 
     #[test]
     fn test_validate_tcp_auth_token_valid() {
