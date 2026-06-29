@@ -1973,10 +1973,7 @@ fn validate_tcp_auth_token(token: &str) -> Result<String, String> {
     }
 
     // Allow alphanumeric + hyphen + underscore + dot
-    if !trimmed
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
-    {
+    if !trimmed.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.') {
         return Err("token contains invalid characters (only alphanumeric, hyphen, underscore, and dot allowed)".to_owned());
     }
 
