@@ -4026,7 +4026,7 @@ mod tests {
         assert!(validate_tcp_auth_token("abcdef1234567890").is_ok());
         assert!(validate_tcp_auth_token("my-secret-token-12345").is_ok());
         assert!(validate_tcp_auth_token("token_with_underscore").is_ok());
-        assert!(validate_tcp_auth_token("token.with.dots").is_ok());
+        assert!(validate_tcp_auth_token("token.with.dots.ok").is_ok());
         assert!(validate_tcp_auth_token("a".repeat(16).as_str()).is_ok());
         assert!(validate_tcp_auth_token("a".repeat(256).as_str()).is_ok());
     }
