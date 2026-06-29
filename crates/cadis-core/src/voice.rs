@@ -266,11 +266,9 @@ impl TtsProvider for EdgeTtsProvider {
                     true,
                 ))
             }
-            Err(error) if error.kind() == io::ErrorKind::TimedOut => Err(TtsError::new(
-                "edge_tts_timeout",
-                error.to_string(),
-                true,
-            )),
+            Err(error) if error.kind() == io::ErrorKind::TimedOut => {
+                Err(TtsError::new("edge_tts_timeout", error.to_string(), true))
+            }
             Err(error) if error.kind() == io::ErrorKind::NotFound => Err(TtsError::new(
                 "edge_tts_not_found",
                 "edge-tts binary is not installed; install with: pip install edge-tts",
@@ -345,11 +343,9 @@ impl TtsProvider for SystemTtsProvider {
                     true,
                 ))
             }
-            Err(error) if error.kind() == io::ErrorKind::TimedOut => Err(TtsError::new(
-                "system_tts_timeout",
-                error.to_string(),
-                true,
-            )),
+            Err(error) if error.kind() == io::ErrorKind::TimedOut => {
+                Err(TtsError::new("system_tts_timeout", error.to_string(), true))
+            }
             Err(error) if error.kind() == io::ErrorKind::NotFound => Err(TtsError::new(
                 "system_tts_not_found",
                 format!(
