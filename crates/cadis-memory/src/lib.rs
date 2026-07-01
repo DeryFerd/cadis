@@ -386,19 +386,31 @@ mod tests {
         store.propose(b).unwrap();
 
         let hits_a = store
-            .search("cargo workspaces", Some(&MemoryScope::Session("ses_A".to_owned())), 10)
+            .search(
+                "cargo workspaces",
+                Some(&MemoryScope::Session("ses_A".to_owned())),
+                10,
+            )
             .unwrap();
         assert_eq!(hits_a.len(), 1);
         assert_eq!(hits_a[0].record.source_session_id.as_deref(), Some("ses_A"));
 
         let hits_b = store
-            .search("cargo workspaces", Some(&MemoryScope::Session("ses_B".to_owned())), 10)
+            .search(
+                "cargo workspaces",
+                Some(&MemoryScope::Session("ses_B".to_owned())),
+                10,
+            )
             .unwrap();
         assert_eq!(hits_b.len(), 1);
         assert_eq!(hits_b[0].record.source_session_id.as_deref(), Some("ses_B"));
 
         let hits_unknown = store
-            .search("cargo workspaces", Some(&MemoryScope::Session("ses_X".to_owned())), 10)
+            .search(
+                "cargo workspaces",
+                Some(&MemoryScope::Session("ses_X".to_owned())),
+                10,
+            )
             .unwrap();
         assert_eq!(hits_unknown.len(), 0);
     }
